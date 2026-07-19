@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-# mib2image_3.0
+# mib2image_gimp3
 # MIB2STD boot image loader/exporter for GIMP 3.x
 #
-# Version: 1.0.0
+# Version: 1.0.2
 #
 # Copyright (C) 2003, 2005 Manish Singh <yosh@gimp.org>
 # Copyright (C) 2021 John Tomatos
