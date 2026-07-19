@@ -4,7 +4,7 @@
 # mib2image_gimp3
 # MIB2STD boot image loader/exporter for GIMP 3.x
 #
-# Version: 1.2.0
+# Version: 1.3.4
 #
 # Copyright (C) 2003, 2005 Manish Singh <yosh@gimp.org>
 # Copyright (C) 2021 John Tomatos
@@ -51,7 +51,7 @@ mib2image_gimp3
 
 MIB2STD boot image loader and exporter for GIMP 3.x.
 
-Version: 1.2.0
+Version: 1.3.4
 Author / GIMP 3.x port: MrGame11 (2026)
 Project: https://github.com/MrGame11/mib-std2-pq-zr-toolbox_mib2image_gimp3
 License: GNU GPL v3 or later (GPL-3.0-or-later)
@@ -82,7 +82,7 @@ project or endorsed by The GIMP Development Team.
 """
 
 
-__version__ = "1.2.0"
+__version__ = "1.3.4"
 __author__ = "MrGame11"
 __license__ = "GPL-3.0-or-later"
 __url__ = "https://github.com/MrGame11/mib-std2-pq-zr-toolbox_mib2image_gimp3"
@@ -105,8 +105,9 @@ from gi.repository import Gimp, Gio, GLib, GObject, Gegl
 
 LOAD_PROC = "file-mib2-load"
 EXPORT_PROC = "file-mib2-export"
+SELECT_LABEL_PROC = "plug-in-mib2image-select-label-area"
 PLUGIN_BINARY = os.path.splitext(os.path.basename(__file__))[0]
-PLUGIN_VERSION = "1.2.0"
+PLUGIN_VERSION = "1.3.4"
 FORMAT_NAME = "MIB2STD BOOT Image"
 MIME_TYPE = "image/mib2"
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mib2image.log")
@@ -145,24 +146,35 @@ TRANSLATIONS = {
             "For exact 800×480 images, the 480×100 area starting at "
             "X=160 / Y=320 is saved as *_lbl.mib."
         ),
-        "export_dialog_title": "MIB2STD BOOT Image",
+        "export_dialog_title": "mib2image Export",
         "export_button": "Export",
         "help_button": "Help",
         "help_dialog_title": "MIB2 Export Help",
         "label_notice_title": "Label extraction not available",
-        "auto_size_label": "Automatically optimize for maximum file size",
+        "auto_size_label": "Automatically optimize for maximum file size (computationally intensive)",
         "auto_size_help": (
             "Automatically choose the highest usable color-level setting "
-            "that keeps the exported file size at or below the selected limit."
+            "that keeps the exported file size at or below the selected limit. "
+            "This operation is computationally intensive because several encodings may be tested."
         ),
-        "max_size_kib_label": "Maximum size (KiB)",
-        "max_size_kib_help": "Target size limit used by the automatic optimizer.",
+        "max_size_kib_label": "Maximum file size",
+        "max_size_kib_help": (
+            "Target size limit used by the automatic optimizer. "
+            "This setting is only used when automatic optimization is enabled."
+        ),
+        "max_size_unit_label": "Unit",
+        "max_size_unit_help": "Unit for the maximum file size: bytes, KiB or MiB.",
         "verify_export_label": "Verify exported file after saving",
         "verify_export_help": (
             "Read the exported MIB file again after saving and verify that "
             "its PNG container and MIB2 payload are still valid."
         ),
-        "estimate_button": "Estimate size",
+        "estimate_button": "Calculate size (computationally intensive)",
+        "estimate_idle": "Click “Calculate size” to estimate the export size. This operation is computationally intensive.",
+        "estimate_stale": "Settings changed. Click “Calculate size” again.",
+        "size_limit_warning": (
+            "Warning: The estimated export size exceeds the selected maximum file size."
+        ),
         "estimate_title": "Estimated export size",
         "label_preview_button": "Mark label area",
         "label_preview_title": "Label area",
@@ -172,10 +184,27 @@ TRANSLATIONS = {
             "This preview is only useful when the image is large enough to contain that area. "
             "Current image size: {width}×{height}."
         ),
+        "verification_success_title": "Export verification successful",
+        "verification_success_text": (
+            "The exported MIB2 file was read back successfully and passed "
+            "the roundtrip/integrity check."
+        ),
         "verification_error_title": "Export verification failed",
         "verification_error_text": (
             "The file was written, but the optional integrity check reported an error:\n\n{error}"
         ),
+        "size_info_title": "Estimated export size",
+        "size_info_text": (
+            "Main file: {main_size} bytes ({main_kib:.1f} KiB)\n"
+            "Label file: {label_size} bytes ({label_kib:.1f} KiB)\n"
+            "Total: {total_size} bytes ({total_kib:.1f} KiB)\n"
+            "Used color levels: {used_levels}"
+        ),
+        "select_label_doc_title": "Select MIB2 label area",
+        "select_label_doc_help": (
+            "Creates a selection for the MIB2 label area at X=160 / Y=320 / 480×100."
+        ),
+        "select_label_menu": "mib2image – Select label area",
         "estimate_text": (
             "Image size: {width}×{height}\n"
             "Auto optimize: {auto_optimize}\n"
@@ -207,9 +236,7 @@ TRANSLATIONS = {
             "format's placeholder values.\n\n"
             "Image width: The image width must always be an even number of pixels. "
             "Images with an odd width cannot be exported to the MIB2 format.\n\n"
-            "Additional tools: The export dialog can estimate the resulting file size, "
-            "mark the label area in GIMP, automatically optimize color levels for a maximum size, "
-            "and optionally verify the exported file after saving."
+            "Additional tools: Use “Calculate size” to estimate the resulting file size. Automatic optimization is computationally intensive and disables manual color-level input; when it is disabled, the maximum-size controls are disabled. Calculating the size is also computationally intensive. The label area can be selected from Select → mib2image – Select label area."
         ),
         "remote_not_supported": "Remote files are not supported by this plug-in.",
         "width_even": "Invalid resolution: The image width must be even.",
@@ -263,24 +290,35 @@ TRANSLATIONS = {
             "Bei exakt 800×480 Pixeln wird der Bereich 480×100 Pixel ab "
             "X=160 / Y=320 als *_lbl.mib gespeichert."
         ),
-        "export_dialog_title": "MIB2STD BOOT Image",
+        "export_dialog_title": "mib2image Export",
         "export_button": "Exportieren",
         "help_button": "Hilfe",
         "help_dialog_title": "Hilfe zum MIB2-Export",
         "label_notice_title": "Label-Extraktion nicht möglich",
-        "auto_size_label": "Automatisch auf maximale Dateigröße optimieren",
+        "auto_size_label": "Automatisch auf maximale Dateigröße optimieren (rechenintensiv)",
         "auto_size_help": (
             "Wählt automatisch die höchste sinnvolle Farbstufen-Einstellung, "
-            "die die exportierte Dateigröße innerhalb des gewählten Limits hält."
+            "die die exportierte Dateigröße innerhalb des gewählten Limits hält. "
+            "Diese Aktion ist rechenintensiv, da mehrere Kodierungen getestet werden können."
         ),
-        "max_size_kib_label": "Maximale Größe (KiB)",
-        "max_size_kib_help": "Zielgröße für die automatische Optimierung.",
+        "max_size_kib_label": "Maximale Dateigröße",
+        "max_size_kib_help": (
+            "Zielgröße für die automatische Optimierung. Diese Einstellung "
+            "wird nur verwendet, wenn die automatische Optimierung aktiviert ist."
+        ),
+        "max_size_unit_label": "Einheit",
+        "max_size_unit_help": "Einheit für die maximale Dateigröße: Bytes, KiB oder MiB.",
         "verify_export_label": "Exportierte Datei nach dem Speichern überprüfen",
         "verify_export_help": (
             "Liest die exportierte MIB-Datei nach dem Speichern erneut ein und "
             "prüft, ob PNG-Container und MIB2-Inhalt gültig sind."
         ),
-        "estimate_button": "Größe schätzen",
+        "estimate_button": "Größe berechnen (rechenintensiv)",
+        "estimate_idle": "Mit „Größe berechnen“ wird die Exportgröße geschätzt. Diese Aktion ist rechenintensiv.",
+        "estimate_stale": "Einstellungen geändert. Bitte „Größe berechnen“ erneut anklicken.",
+        "size_limit_warning": (
+            "Warnung: Die geschätzte Exportgröße überschreitet die ausgewählte maximale Dateigröße."
+        ),
         "estimate_title": "Geschätzte Exportgröße",
         "label_preview_button": "Label-Bereich markieren",
         "label_preview_title": "Label-Bereich",
@@ -290,10 +328,27 @@ TRANSLATIONS = {
             "Diese Vorschau ist nur sinnvoll, wenn das Bild groß genug ist, um diesen Bereich zu enthalten. "
             "Aktuelle Bildgröße: {width}×{height}."
         ),
+        "verification_success_title": "Export-Prüfung erfolgreich",
+        "verification_success_text": (
+            "Die exportierte MIB2-Datei wurde erfolgreich erneut eingelesen "
+            "und hat die Roundtrip-/Integritätsprüfung bestanden."
+        ),
         "verification_error_title": "Export-Prüfung fehlgeschlagen",
         "verification_error_text": (
             "Die Datei wurde gespeichert, aber die optionale Integritätsprüfung hat einen Fehler gemeldet:\n\n{error}"
         ),
+        "size_info_title": "Geschätzte Exportgröße",
+        "size_info_text": (
+            "Hauptdatei: {main_size} Bytes ({main_kib:.1f} KiB)\n"
+            "Label-Datei: {label_size} Bytes ({label_kib:.1f} KiB)\n"
+            "Gesamt: {total_size} Bytes ({total_kib:.1f} KiB)\n"
+            "Verwendete Farbstufen: {used_levels}"
+        ),
+        "select_label_doc_title": "MIB2-Labelbereich auswählen",
+        "select_label_doc_help": (
+            "Erstellt eine Auswahl für den MIB2-Labelbereich bei X=160 / Y=320 / 480×100 Pixeln."
+        ),
+        "select_label_menu": "mib2image – Labelbereich auswählen",
         "estimate_text": (
             "Bildgröße: {width}×{height}\n"
             "Automatische Optimierung: {auto_optimize}\n"
@@ -326,9 +381,7 @@ TRANSLATIONS = {
             "Bildbreite: Die Breite des Bildes muss immer eine gerade Anzahl von "
             "Pixeln haben. Bilder mit ungerader Breite können nicht in das "
             "MIB2-Format exportiert werden.\n\n"
-            "Zusätzliche Werkzeuge: Der Exportdialog kann die resultierende Dateigröße schätzen, "
-            "den Label-Bereich in GIMP markieren, die Farbstufen automatisch auf eine maximale Größe "
-            "optimieren und die exportierte Datei nach dem Speichern optional überprüfen."
+            "Zusätzliche Werkzeuge: Mit „Größe berechnen“ wird die resultierende Dateigröße geschätzt. Die automatische Optimierung ist rechenintensiv und deaktiviert die manuelle Farbstufen-Eingabe; ohne automatische Optimierung sind die Einstellungen für die maximale Dateigröße deaktiviert. Auch die Größenberechnung ist rechenintensiv. Der Label-Bereich kann über Auswahl → mib2image – Labelbereich auswählen markiert werden."
         ),
         "remote_not_supported": (
             "Remote-Dateien werden von diesem Plugin nicht unterstützt."
@@ -418,7 +471,7 @@ def _rotate_log_if_needed(incoming_bytes=0):
     """
     Keep mib2image.log at or below LOG_MAX_BYTES.
 
-    When the next entry would exceed 1 MiB, the current log is moved to
+    When the next entry would exceed LOG_MAX_BYTES, the current log is moved to
     mib2image.log.old. Only one backup is retained.
     """
     try:
@@ -1206,6 +1259,25 @@ def load_mib2_run(
 
 
 
+def _find_widget_of_type(widget, widget_type):
+    """Recursively find the first widget instance of the requested GTK type."""
+    try:
+        if isinstance(widget, widget_type):
+            return widget
+    except Exception:
+        return None
+
+    try:
+        for child in widget.get_children():
+            found = _find_widget_of_type(child, widget_type)
+            if found is not None:
+                return found
+    except Exception:
+        pass
+
+    return None
+
+
 def _find_spin_button(widget):
     """Recursively find a Gtk.SpinButton inside a composite GIMP UI widget."""
     try:
@@ -1214,19 +1286,7 @@ def _find_spin_button(widget):
     except Exception:
         return None
 
-    if isinstance(widget, Gtk.SpinButton):
-        return widget
-
-    try:
-        if isinstance(widget, Gtk.Container):
-            for child in widget.get_children():
-                found = _find_spin_button(child)
-                if found is not None:
-                    return found
-    except Exception:
-        pass
-
-    return None
+    return _find_widget_of_type(widget, Gtk.SpinButton)
 
 
 def _configure_color_levels_widget(dialog, config):
@@ -1321,8 +1381,64 @@ def _normalize_limit_colors(levels):
     return max(2, min(256, levels))
 
 
-def _normalize_max_size_kib(value):
-    return max(1, int(value))
+def _normalize_max_size_value(value):
+    return max(0.01, float(value))
+
+
+def _normalize_max_size_unit(unit):
+    if isinstance(unit, int):
+        return {0: "bytes", 1: "kib", 2: "mib"}.get(unit, "mib")
+
+    unit = str(unit or "mib").lower()
+    if unit in ("0", "bytes"):
+        return "bytes"
+    if unit in ("1", "kib"):
+        return "kib"
+    if unit in ("2", "mib"):
+        return "mib"
+    return "mib"
+
+
+def _max_size_unit_to_index(unit):
+    return {"bytes": 0, "kib": 1, "mib": 2}[
+        _normalize_max_size_unit(unit)
+    ]
+
+
+def _size_unit_multiplier(unit):
+    unit = _normalize_max_size_unit(unit)
+    return {
+        "bytes": 1.0,
+        "kib": 1024.0,
+        "mib": 1024.0 * 1024.0,
+    }[unit]
+
+
+def _size_limit_to_bytes(value, unit):
+    value = _normalize_max_size_value(value)
+    return max(
+        1,
+        int(round(value * _size_unit_multiplier(unit))),
+    )
+
+
+def _convert_size_value(value, old_unit, new_unit):
+    """Convert a displayed size value while preserving the same byte limit."""
+    byte_value = float(value) * _size_unit_multiplier(old_unit)
+    return byte_value / _size_unit_multiplier(new_unit)
+
+
+def _format_size_info(plan):
+    return _t(
+        "size_info_text",
+        main_size=plan["main_size"],
+        main_kib=plan["main_size"] / 1024.0,
+        label_size=plan["label_size"],
+        label_kib=plan["label_size"] / 1024.0,
+        total_size=plan["total_size"],
+        total_kib=plan["total_size"] / 1024.0,
+        used_levels=plan["used_levels"],
+    )
 
 
 def _show_info_dialog(parent, title, message):
@@ -1374,10 +1490,17 @@ def _build_export_payload_for_levels(image, limit_colors, extract_label):
     }
 
 
-def _build_export_plan(image, limit_colors, extract_label, auto_size, max_size_kib):
+def _build_export_plan(
+    image,
+    limit_colors,
+    extract_label,
+    auto_size,
+    max_size_value,
+    max_size_unit,
+):
     extract_label = bool(extract_label)
     auto_size = bool(auto_size)
-    max_size_bytes = _normalize_max_size_kib(max_size_kib) * 1024
+    max_size_bytes = _size_limit_to_bytes(max_size_value, max_size_unit)
 
     if auto_size:
         best_plan = None
@@ -1410,52 +1533,6 @@ def _build_export_plan(image, limit_colors, extract_label, auto_size, max_size_k
     plan["total_size"] = plan["main_size"] + plan["label_size"]
     plan["size_limit_met"] = plan["total_size"] <= max_size_bytes
     return plan
-
-
-def _show_export_estimate_dialog(parent, image, config):
-    try:
-        limit_colors = _normalize_limit_colors(config.get_property("lim-colors"))
-        extract_label = bool(config.get_property("extract-label"))
-        auto_size = bool(config.get_property("auto-size"))
-        max_size_kib = _normalize_max_size_kib(config.get_property("max-size-kib"))
-
-        _log(
-            "INFO",
-            f"Estimate requested: color_levels={limit_colors}, extract_label={extract_label}, "
-            f"auto_size={auto_size}, max_size_kib={max_size_kib}.",
-        )
-        plan = _build_export_plan(image, limit_colors, extract_label, auto_size, max_size_kib)
-        width, height = plan["width"], plan["height"]
-        message = _t(
-            "estimate_text",
-            width=width,
-            height=height,
-            auto_optimize=("yes" if plan["auto_optimize"] else "no") if LANGUAGE == "en" else ("ja" if plan["auto_optimize"] else "nein"),
-            requested_levels=plan["requested_levels"],
-            used_levels=plan["used_levels"],
-            posterize_method=plan["posterize_method"],
-            label_status=("yes" if plan["label_extracted"] else "no") if LANGUAGE == "en" else ("ja" if plan["label_extracted"] else "nein"),
-            main_size=plan["main_size"],
-            main_kib=plan["main_size"] / 1024.0,
-            label_size=plan["label_size"],
-            label_kib=plan["label_size"] / 1024.0,
-            total_size=plan["total_size"],
-            total_kib=plan["total_size"] / 1024.0,
-            max_size=plan["max_size_bytes"],
-            max_kib=plan["max_size_bytes"] / 1024.0,
-            within_limit=("yes" if plan["size_limit_met"] else "no") if LANGUAGE == "en" else ("ja" if plan["size_limit_met"] else "nein"),
-        )
-        _show_info_dialog(parent, _t("estimate_title"), message)
-        _log(
-            "INFO",
-            f"Estimate completed: total_size={plan['total_size']} bytes, "
-            f"main_size={plan['main_size']} bytes, label_size={plan['label_size']} bytes, "
-            f"used_levels={plan['used_levels']}, auto_size={plan['auto_optimize']}, "
-            f"within_limit={plan['size_limit_met']}.",
-        )
-    except Exception as exc:
-        _log("ERROR", f"Estimate failed: {type(exc).__name__}: {exc}")
-        _show_info_dialog(parent, _t("estimate_title"), str(exc))
 
 
 def _mark_label_area_dialog(parent, image):
@@ -1495,7 +1572,6 @@ def _mark_label_area_dialog(parent, image):
     except Exception:
         pass
 
-    _show_info_dialog(parent, _t("label_preview_title"), _t("label_preview_done"))
     _log("INFO", "Label preview selection applied in GIMP.")
 
 
@@ -1522,6 +1598,14 @@ def _verify_exported_output(main_path, width, height, label_path=None):
     _log("INFO", "Verification step: roundtrip/integrity check completed successfully.")
 
 
+def _show_verification_success_dialog():
+    _show_info_dialog(
+        None,
+        _t("verification_success_title"),
+        _t("verification_success_text"),
+    )
+
+
 def _show_verification_error_dialog(error_message):
     _show_info_dialog(
         None,
@@ -1540,105 +1624,608 @@ def _show_export_dialog(procedure, config, image):
         procedure, config, _t("export_dialog_title")
     )
 
-    dialog_items = [
-        "lim-colors",
-        "auto-size",
-        "max-size-kib",
-        "verify-export",
-        "extract-label",
-    ]
-
-    filled = False
-    fill_error = None
-
-    if hasattr(dialog, "fill"):
-        try:
-            dialog.fill(dialog_items)
-            _log(
-                "INFO",
-                "Export dialog: populated using ProcedureDialog.fill(list).",
-            )
-            filled = True
-        except Exception as exc:
-            fill_error = exc
-            _log(
-                "WARNING",
-                f"Export dialog fill(list) failed: {type(exc).__name__}: {exc}",
-            )
-
-    if not filled and hasattr(dialog, "fill_list"):
-        try:
-            dialog.fill_list(dialog_items)
-            _log(
-                "INFO",
-                "Export dialog: populated using ProcedureDialog.fill_list(list).",
-            )
-            filled = True
-        except Exception as exc:
-            fill_error = exc
-            _log(
-                "WARNING",
-                f"Export dialog fill_list(list) failed: {type(exc).__name__}: {exc}",
-            )
-
-    if not filled:
-        raise RuntimeError(
-            "Could not populate GIMP export dialog with available ProcedureDialog API"
-            + (f": {fill_error}" if fill_error else ".")
+    # Build the property widgets individually so we can control their exact
+    # vertical order in the export dialog.
+    try:
+        lim_widget = dialog.get_widget(
+            "lim-colors",
+            GObject.TYPE_NONE,
         )
+        auto_widget = dialog.get_widget(
+            "auto-size",
+            GObject.TYPE_NONE,
+        )
+        extract_widget = dialog.get_widget(
+            "extract-label",
+            GObject.TYPE_NONE,
+        )
+        verify_widget = dialog.get_widget(
+            "verify-export",
+            GObject.TYPE_NONE,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            "Could not create export option widgets: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
 
     _configure_color_levels_widget(dialog, config)
-    dialog.set_ok_label(_t("export_button"))
 
-    def show_help(_button):
-        _log("INFO", "Export dialog: Help opened.")
-        _show_info_dialog(dialog, _t("help_dialog_title"), _t("export_explanation"))
-        _log("INFO", "Export dialog: Help closed; returning to export options.")
+    auto_check = (
+        _find_widget_of_type(auto_widget, Gtk.CheckButton)
+        if auto_widget is not None
+        else None
+    )
+    lim_spin = (
+        _find_spin_button(lim_widget)
+        if lim_widget is not None
+        else None
+    )
+    extract_check = (
+        _find_widget_of_type(extract_widget, Gtk.CheckButton)
+        if extract_widget is not None
+        else None
+    )
 
-    def show_estimate(_button):
-        _show_export_estimate_dialog(dialog, image, config)
+    # -------------------------------------------------------------------
+    # Maximum file size: label [value] [unit]
+    # Keep the label/value spacing compact instead of expanding the label.
+    # -------------------------------------------------------------------
+    max_size_row = Gtk.Box(
+        orientation=Gtk.Orientation.HORIZONTAL,
+        spacing=6,
+    )
 
-    def show_label_preview(_button):
-        try:
-            _mark_label_area_dialog(dialog, image)
-        except Exception as exc:
-            _log("ERROR", f"Label preview failed: {type(exc).__name__}: {exc}")
-            _show_info_dialog(dialog, _t("label_preview_title"), str(exc))
+    max_size_label = Gtk.Label(
+        label=_t("max_size_kib_label")
+    )
+    try:
+        max_size_label.set_xalign(0.0)
+    except Exception:
+        pass
+
+    current_value = _normalize_max_size_value(
+        config.get_property("max-size-value")
+    )
+    current_unit = _normalize_max_size_unit(
+        config.get_property("max-size-unit")
+    )
+
+    max_size_adjustment = Gtk.Adjustment.new(
+        current_value,
+        0.000001,
+        1099511627776.0,
+        1.0,
+        64.0,
+        0.0,
+    )
+    max_size_spin = Gtk.SpinButton.new(
+        max_size_adjustment,
+        1.0,
+        3,
+    )
+    max_size_spin.set_value(current_value)
+    max_size_spin.set_width_chars(10)
+    max_size_spin.set_tooltip_text(
+        _t("max_size_kib_help")
+    )
+
+    unit_combo = Gtk.ComboBoxText()
+    unit_combo.append("bytes", "Bytes")
+    unit_combo.append("kib", "KiB")
+    unit_combo.append("mib", "MiB")
+    unit_combo.set_tooltip_text(
+        _t("max_size_unit_help")
+    )
+    unit_combo.set_active_id(current_unit)
+
+    # No expanding spacer between label and input.
+    max_size_row.pack_start(
+        max_size_label,
+        False,
+        False,
+        0,
+    )
+    max_size_row.pack_start(
+        max_size_spin,
+        False,
+        False,
+        0,
+    )
+    max_size_row.pack_start(
+        unit_combo,
+        False,
+        False,
+        0,
+    )
+
+    # -------------------------------------------------------------------
+    # Estimated size + optional warning.
+    # -------------------------------------------------------------------
+    size_box = Gtk.Box(
+        orientation=Gtk.Orientation.VERTICAL,
+        spacing=4,
+    )
+
+    size_title = Gtk.Label(
+        label=_t("size_info_title")
+    )
+    size_value = Gtk.Label(
+        label=_t("estimate_idle")
+    )
+    size_warning = Gtk.Label(
+        label=""
+    )
 
     try:
-        help_button = Gtk.Button.new_with_label(_t("help_button"))
-        help_button.connect("clicked", show_help)
+        size_title.set_xalign(0.0)
+        size_value.set_xalign(0.0)
+        size_value.set_line_wrap(True)
+        size_value.set_selectable(True)
+        size_warning.set_xalign(0.0)
+        size_warning.set_line_wrap(True)
+        size_warning.set_use_markup(True)
+    except Exception:
+        pass
 
-        estimate_button = Gtk.Button.new_with_label(_t("estimate_button"))
-        estimate_button.connect("clicked", show_estimate)
+    size_box.pack_start(
+        size_title,
+        False,
+        False,
+        0,
+    )
+    size_box.pack_start(
+        size_value,
+        False,
+        False,
+        0,
+    )
+    size_box.pack_start(
+        size_warning,
+        False,
+        False,
+        0,
+    )
 
-        preview_button = Gtk.Button.new_with_label(_t("label_preview_button"))
-        preview_button.connect("clicked", show_label_preview)
+    # -------------------------------------------------------------------
+    # Exact requested ordering.
+    # -------------------------------------------------------------------
+    options_box = Gtk.Box(
+        orientation=Gtk.Orientation.VERTICAL,
+        spacing=8,
+    )
+    try:
+        options_box.set_margin_start(12)
+        options_box.set_margin_end(12)
+        options_box.set_margin_top(8)
+        options_box.set_margin_bottom(4)
+    except Exception:
+        pass
+
+    options_box.pack_start(
+        lim_widget,
+        False,
+        False,
+        0,
+    )
+    options_box.pack_start(
+        auto_widget,
+        False,
+        False,
+        0,
+    )
+    options_box.pack_start(
+        max_size_row,
+        False,
+        False,
+        0,
+    )
+    options_box.pack_start(
+        extract_widget,
+        False,
+        False,
+        0,
+    )
+    options_box.pack_start(
+        size_box,
+        False,
+        False,
+        0,
+    )
+    options_box.pack_start(
+        verify_widget,
+        False,
+        False,
+        0,
+    )
+
+    try:
+        dialog.get_content_area().pack_start(
+            options_box,
+            False,
+            False,
+            0,
+        )
+        options_box.show_all()
+        size_warning.hide()
+    except Exception as exc:
+        raise RuntimeError(
+            "Could not populate export dialog layout: "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+
+    dialog.set_ok_label(
+        _t("export_button")
+    )
+
+    unit_state = {
+        "current": current_unit,
+        "converting": False,
+    }
+
+    def current_auto_size():
+        if auto_check is not None:
+            return bool(
+                auto_check.get_active()
+            )
+        return bool(
+            config.get_property("auto-size")
+        )
+
+    def update_sensitivity(*_args):
+        # UI only. No encoding or size calculation.
+        auto_enabled = current_auto_size()
+
+        try:
+            lim_widget.set_sensitive(
+                not auto_enabled
+            )
+        except Exception:
+            pass
+
+        try:
+            max_size_row.set_sensitive(
+                auto_enabled
+            )
+        except Exception:
+            pass
+
+    def mark_estimate_stale(*_args):
+        try:
+            size_value.set_text(
+                _t("estimate_stale")
+            )
+            size_warning.hide()
+        except Exception:
+            pass
+
+    def sync_max_size_value(*_args):
+        if unit_state["converting"]:
+            return
+
+        value = float(
+            max_size_spin.get_value()
+        )
+        try:
+            config.set_property(
+                "max-size-value",
+                value,
+            )
+        except Exception as exc:
+            _log(
+                "WARNING",
+                f"Could not persist max-size-value: "
+                f"{type(exc).__name__}: {exc}",
+            )
+        mark_estimate_stale()
+
+    def convert_unit(*_args):
+        new_unit = (
+            unit_combo.get_active_id()
+            or unit_state["current"]
+        )
+        old_unit = unit_state["current"]
+
+        if new_unit == old_unit:
+            return
+
+        old_value = float(
+            max_size_spin.get_value()
+        )
+        new_value = _convert_size_value(
+            old_value,
+            old_unit,
+            new_unit,
+        )
+
+        unit_state["converting"] = True
+        try:
+            if new_unit == "bytes":
+                max_size_spin.set_digits(0)
+                max_size_spin.set_increments(
+                    1.0,
+                    1024.0,
+                )
+            elif new_unit == "kib":
+                max_size_spin.set_digits(2)
+                max_size_spin.set_increments(
+                    1.0,
+                    64.0,
+                )
+            else:
+                max_size_spin.set_digits(3)
+                max_size_spin.set_increments(
+                    0.1,
+                    1.0,
+                )
+
+            max_size_spin.set_value(
+                new_value
+            )
+            config.set_property(
+                "max-size-value",
+                float(new_value),
+            )
+            config.set_property(
+                "max-size-unit",
+                _max_size_unit_to_index(
+                    new_unit
+                ),
+            )
+            unit_state["current"] = new_unit
+
+            _log(
+                "INFO",
+                "Maximum size unit converted: "
+                f"{old_value} {old_unit} -> "
+                f"{new_value} {new_unit}.",
+            )
+        finally:
+            unit_state["converting"] = False
+
+        mark_estimate_stale()
+
+    # Initial display precision.
+    if current_unit == "bytes":
+        max_size_spin.set_digits(0)
+        max_size_spin.set_increments(
+            1.0,
+            1024.0,
+        )
+    elif current_unit == "kib":
+        max_size_spin.set_digits(2)
+        max_size_spin.set_increments(
+            1.0,
+            64.0,
+        )
+    else:
+        max_size_spin.set_digits(3)
+        max_size_spin.set_increments(
+            0.1,
+            1.0,
+        )
+
+    def calculate_size(_button):
+        try:
+            limit_colors = _normalize_limit_colors(
+                config.get_property("lim-colors")
+            )
+            extract_label = bool(
+                config.get_property("extract-label")
+            )
+            auto_size = current_auto_size()
+            max_size_value = float(
+                max_size_spin.get_value()
+            )
+            max_size_unit = _normalize_max_size_unit(
+                unit_combo.get_active_id()
+            )
+
+            config.set_property(
+                "max-size-value",
+                max_size_value,
+            )
+            config.set_property(
+                "max-size-unit",
+                _max_size_unit_to_index(
+                    max_size_unit
+                ),
+            )
+
+            _log(
+                "INFO",
+                "Estimate requested by user "
+                "(computationally intensive): "
+                f"color_levels={limit_colors}, "
+                f"extract_label={extract_label}, "
+                f"auto_size={auto_size}, "
+                f"max_size_value={max_size_value}, "
+                f"max_size_unit={max_size_unit}.",
+            )
+
+            plan = _build_export_plan(
+                image,
+                limit_colors,
+                extract_label,
+                auto_size,
+                max_size_value,
+                max_size_unit,
+            )
+
+            size_value.set_text(
+                _format_size_info(plan)
+            )
+
+            # The selected maximum is relevant when automatic optimization
+            # is enabled. Show a clearly visible warning if even the best
+            # tested result still exceeds the chosen limit.
+            if auto_size and not plan["size_limit_met"]:
+                size_warning.set_markup(
+                    '<span foreground="red"><b>'
+                    + GLib.markup_escape_text(
+                        _t("size_limit_warning")
+                    )
+                    + "</b></span>"
+                )
+                size_warning.show()
+            else:
+                size_warning.hide()
+
+            _log(
+                "INFO",
+                "Estimate completed: "
+                f"main_size={plan['main_size']} bytes, "
+                f"label_size={plan['label_size']} bytes, "
+                f"total_size={plan['total_size']} bytes, "
+                f"used_levels={plan['used_levels']}, "
+                f"size_limit_met={plan['size_limit_met']}.",
+            )
+        except Exception as exc:
+            size_value.set_text(
+                str(exc)
+            )
+            size_warning.hide()
+            _log(
+                "ERROR",
+                f"Estimate failed: "
+                f"{type(exc).__name__}: {exc}",
+            )
+
+    def show_help(_button):
+        _log(
+            "INFO",
+            "Export dialog: Help opened.",
+        )
+        _show_info_dialog(
+            dialog,
+            _t("help_dialog_title"),
+            _t("export_explanation"),
+        )
+        _log(
+            "INFO",
+            "Export dialog: Help closed.",
+        )
+
+    # These signals only affect UI state / stale marker.
+    if auto_check is not None:
+        auto_check.connect(
+            "toggled",
+            update_sensitivity,
+        )
+        auto_check.connect(
+            "toggled",
+            mark_estimate_stale,
+        )
+
+    if lim_spin is not None:
+        lim_spin.connect(
+            "value-changed",
+            mark_estimate_stale,
+        )
+
+    if extract_check is not None:
+        extract_check.connect(
+            "toggled",
+            mark_estimate_stale,
+        )
+
+    max_size_spin.connect(
+        "value-changed",
+        sync_max_size_value,
+    )
+    unit_combo.connect(
+        "changed",
+        convert_unit,
+    )
+
+    # Verification is intentionally not connected to size estimation.
+    update_sensitivity()
+
+    try:
+        estimate_button = Gtk.Button.new_with_label(
+            _t("estimate_button")
+        )
+        estimate_button.set_tooltip_text(
+            _t("estimate_idle")
+        )
+        estimate_button.connect(
+            "clicked",
+            calculate_size,
+        )
+
+        help_button = Gtk.Button.new_with_label(
+            _t("help_button")
+        )
+        help_button.connect(
+            "clicked",
+            show_help,
+        )
 
         action_area = dialog.get_action_area()
-        action_area.pack_start(help_button, False, False, 0)
-        action_area.pack_start(estimate_button, False, False, 0)
-        action_area.pack_start(preview_button, False, False, 0)
-        help_button.show()
+        action_area.pack_start(
+            estimate_button,
+            False,
+            False,
+            0,
+        )
+        action_area.pack_start(
+            help_button,
+            False,
+            False,
+            0,
+        )
         estimate_button.show()
-        preview_button.show()
+        help_button.show()
 
         _log(
             "INFO",
-            "Export dialog: Help, Estimate size and Label preview buttons added.",
+            "Export dialog: Calculate size and Help buttons added.",
         )
     except Exception as exc:
         _log(
             "WARNING",
-            f"Export dialog: could not add custom action buttons: {type(exc).__name__}: {exc}",
+            f"Export dialog: could not add action buttons: "
+            f"{type(exc).__name__}: {exc}",
         )
 
-    accepted = bool(dialog.run())
+    accepted = bool(
+        dialog.run()
+    )
 
     if accepted:
-        _log("INFO", "Export dialog: validated by user.")
+        try:
+            final_value = float(
+                max_size_spin.get_value()
+            )
+            final_unit = _normalize_max_size_unit(
+                unit_combo.get_active_id()
+            )
+            config.set_property(
+                "max-size-value",
+                final_value,
+            )
+            config.set_property(
+                "max-size-unit",
+                _max_size_unit_to_index(
+                    final_unit
+                ),
+            )
+        except Exception as exc:
+            _log(
+                "WARNING",
+                f"Could not persist maximum-size settings: "
+                f"{type(exc).__name__}: {exc}",
+            )
+
+        _log(
+            "INFO",
+            "Export dialog: validated by user.",
+        )
     else:
-        _log("INFO", "Export dialog: cancelled by user.")
+        _log(
+            "INFO",
+            "Export dialog: cancelled by user.",
+        )
 
     dialog.destroy()
     return accepted
@@ -1682,6 +2269,27 @@ def _show_label_extraction_notice(image):
     )
 
 
+
+def select_label_area_run(
+    procedure,
+    run_mode,
+    image,
+    drawables,
+    config,
+    run_data,
+):
+    try:
+        _mark_label_area_dialog(None, image)
+        return procedure.new_return_values(
+            Gimp.PDBStatusType.SUCCESS, None
+        )
+    except Exception as exc:
+        return procedure.new_return_values(
+            Gimp.PDBStatusType.EXECUTION_ERROR,
+            _glib_error(exc),
+        )
+
+
 def export_mib2_run(
     procedure,
     run_mode,
@@ -1694,9 +2302,19 @@ def export_mib2_run(
 ):
     try:
         if run_mode == Gimp.RunMode.INTERACTIVE:
-            _log("INFO", "Export step: opening interactive export options dialog.")
-            if not _show_export_dialog(procedure, config, image):
-                _log("INFO", "Export cancelled after options dialog returned False.")
+            _log(
+                "INFO",
+                "Export step: opening interactive export options dialog.",
+            )
+            if not _show_export_dialog(
+                procedure,
+                config,
+                image,
+            ):
+                _log(
+                    "INFO",
+                    "Export cancelled after options dialog returned False.",
+                )
                 return procedure.new_return_values(
                     Gimp.PDBStatusType.CANCEL, None
                 )
@@ -1706,11 +2324,24 @@ def export_mib2_run(
         if not path:
             raise Mib2Error(_t("remote_not_supported"))
 
-        limit_colors = _normalize_limit_colors(config.get_property("lim-colors"))
-        auto_size = bool(config.get_property("auto-size"))
-        max_size_kib = _normalize_max_size_kib(config.get_property("max-size-kib"))
-        verify_export = bool(config.get_property("verify-export"))
-        extract_label = bool(config.get_property("extract-label"))
+        limit_colors = _normalize_limit_colors(
+            config.get_property("lim-colors")
+        )
+        auto_size = bool(
+            config.get_property("auto-size")
+        )
+        max_size_value = _normalize_max_size_value(
+            config.get_property("max-size-value")
+        )
+        max_size_unit = _normalize_max_size_unit(
+            config.get_property("max-size-unit")
+        )
+        verify_export = bool(
+            config.get_property("verify-export")
+        )
+        extract_label = bool(
+            config.get_property("extract-label")
+        )
 
         if run_mode == Gimp.RunMode.INTERACTIVE and extract_label:
             current_width, current_height = _get_image_size(image)
@@ -1720,7 +2351,8 @@ def export_mib2_run(
         _log(
             "INFO",
             f"Export requested: target={path}, color_levels={limit_colors}, "
-            f"auto_size={auto_size}, max_size_kib={max_size_kib}, "
+            f"auto_size={auto_size}, max_size_value={max_size_value}, "
+            f"max_size_unit={max_size_unit}, "
             f"verify_export={verify_export}, extract_label={extract_label}.",
         )
 
@@ -1729,7 +2361,8 @@ def export_mib2_run(
             limit_colors,
             extract_label,
             auto_size,
-            max_size_kib,
+            max_size_value,
+            max_size_unit,
         )
 
         width = plan["width"]
@@ -1776,16 +2409,27 @@ def export_mib2_run(
             "Export result summary: "
             f"main_size={main_size} bytes, label_size={label_size} bytes, total_size={total_size} bytes, "
             f"used_levels={plan['used_levels']}, requested_levels={plan['requested_levels']}, "
-            f"auto_size={plan['auto_optimize']}, max_size_kib={max_size_kib}, "
-            f"size_limit_met={plan['size_limit_met']}, posterize_method={plan['posterize_method']}."
+            f"auto_size={plan['auto_optimize']}, "
+            f"max_size_value={max_size_value}, max_size_unit={max_size_unit}, "
+            f"size_limit_met={plan['size_limit_met']}, "
+            f"posterize_method={plan['posterize_method']}."
         )
 
         if verify_export:
             try:
-                _verify_exported_output(path, width, height, label_path)
+                _verify_exported_output(
+                    path,
+                    width,
+                    height,
+                    label_path,
+                )
+                if run_mode == Gimp.RunMode.INTERACTIVE:
+                    _show_verification_success_dialog()
             except Exception as exc:
                 if run_mode == Gimp.RunMode.INTERACTIVE:
-                    _show_verification_error_dialog(str(exc))
+                    _show_verification_error_dialog(
+                        str(exc)
+                    )
                 raise
 
         return procedure.new_return_values(
@@ -1801,7 +2445,11 @@ def export_mib2_run(
 
 class Mib2ImagePlugin(Gimp.PlugIn):
     def do_query_procedures(self):
-        return [LOAD_PROC, EXPORT_PROC]
+        return [
+            LOAD_PROC,
+            EXPORT_PROC,
+            SELECT_LABEL_PROC,
+        ]
 
     def do_create_procedure(self, name):
         Gegl.init(None)
@@ -1867,34 +2515,81 @@ class Mib2ImagePlugin(Gimp.PlugIn):
                 GObject.ParamFlags.READWRITE,
             )
             procedure.add_boolean_argument(
+                "extract-label",
+                _t("extract_label_label"),
+                _t("extract_label_help"),
+                True,
+                GObject.ParamFlags.READWRITE,
+            )
+
+            # Auxiliary arguments are part of ProcedureConfig (including
+            # persistence / saved settings) without changing the file-export
+            # procedure's public calling convention.
+            procedure.add_boolean_aux_argument(
                 "auto-size",
                 _t("auto_size_label"),
                 _t("auto_size_help"),
                 False,
                 GObject.ParamFlags.READWRITE,
             )
-            procedure.add_int_argument(
-                "max-size-kib",
+            procedure.add_double_aux_argument(
+                "max-size-value",
                 _t("max_size_kib_label"),
                 _t("max_size_kib_help"),
-                1,
-                1048576,
-                1024,
+                0.000001,
+                1099511627776.0,
+                1.0,
                 GObject.ParamFlags.READWRITE,
             )
-            procedure.add_boolean_argument(
+            procedure.add_int_aux_argument(
+                "max-size-unit",
+                _t("max_size_unit_label"),
+                _t("max_size_unit_help"),
+                0,
+                2,
+                2,
+                GObject.ParamFlags.READWRITE,
+            )
+            procedure.add_boolean_aux_argument(
                 "verify-export",
                 _t("verify_export_label"),
                 _t("verify_export_help"),
                 True,
                 GObject.ParamFlags.READWRITE,
             )
-            procedure.add_boolean_argument(
-                "extract-label",
-                _t("extract_label_label"),
-                _t("extract_label_help"),
-                True,
-                GObject.ParamFlags.READWRITE,
+            return procedure
+
+        if name == SELECT_LABEL_PROC:
+            procedure = Gimp.ImageProcedure.new(
+                self,
+                name,
+                Gimp.PDBProcType.PLUGIN,
+                select_label_area_run,
+                None,
+            )
+            procedure.set_documentation(
+                _t("select_label_doc_title"),
+                _t("select_label_doc_help"),
+                None,
+            )
+            procedure.set_attribution(
+                _t("attribution"),
+                "John Tomatos",
+                "2021–2026",
+            )
+            procedure.set_image_types("*")
+            try:
+                procedure.set_sensitivity_mask(
+                    Gimp.ProcedureSensitivityMask.DRAWABLE
+                    | Gimp.ProcedureSensitivityMask.NO_DRAWABLES
+                )
+            except Exception:
+                pass
+            procedure.set_menu_label(
+                _t("select_label_menu")
+            )
+            procedure.add_menu_path(
+                "<Image>/Select"
             )
             return procedure
 
