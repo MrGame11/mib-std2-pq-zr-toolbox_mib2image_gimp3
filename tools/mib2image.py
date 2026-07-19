@@ -4,7 +4,7 @@
 # mib2image_gimp3
 # MIB2STD boot image loader/exporter for GIMP 3.x
 #
-# Version: 1.0.2
+# Version: 1.1.0
 #
 # Copyright (C) 2003, 2005 Manish Singh <yosh@gimp.org>
 # Copyright (C) 2021 John Tomatos
@@ -46,12 +46,12 @@
 
 
 """
-mib2image_3.0
+mib2image_gimp3
 ===============
 
 MIB2STD boot image loader and exporter for GIMP 3.x.
 
-Version: 1.0.0
+Version: 1.1.0
 Author / GIMP 3.x port: MrGame11 (2026)
 Project: https://github.com/MrGame11/mib-std2-pq-zr-toolbox_mib2image_gimp3
 License: GNU GPL v3 or later (GPL-3.0-or-later)
@@ -82,7 +82,7 @@ project or endorsed by The GIMP Development Team.
 """
 
 
-__version__ = "1.0.2"
+__version__ = "1.1.0"
 __author__ = "MrGame11"
 __license__ = "GPL-3.0-or-later"
 __url__ = "https://github.com/MrGame11/mib-std2-pq-zr-toolbox_mib2image_gimp3"
@@ -104,7 +104,7 @@ from gi.repository import Gimp, Gio, GLib, GObject, Gegl
 LOAD_PROC = "file-mib2-load"
 EXPORT_PROC = "file-mib2-export"
 PLUGIN_BINARY = os.path.splitext(os.path.basename(__file__))[0]
-PLUGIN_VERSION = "1.0.2"
+PLUGIN_VERSION = "1.1.0"
 FORMAT_NAME = "MIB2STD BOOT Image"
 MIME_TYPE = "image/mib2"
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mib2image.log")
@@ -115,6 +115,180 @@ LABEL_WIDTH = 480
 LABEL_HEIGHT = 100
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+TRANSLATIONS = {
+    "en": {
+        "load_doc_title": "Load MIB2STD boot image",
+        "load_doc_help": (
+            "Loads an MIB2STD PNG container and reconstructs the RGB image "
+            "using the original MIB2 conversion formula."
+        ),
+        "export_doc_title": "Export MIB2STD boot image",
+        "export_doc_help": (
+            "Encodes a GIMP image as an MIB2STD grayscale/alpha PNG. "
+            "Optionally limits color levels and extracts the 480×100 label "
+            "area from 800×480 images."
+        ),
+        "attribution": "John Tomatos; GIMP 3.x port by MrGame11",
+        "limit_colors_label": "Limit color levels",
+        "limit_colors_help": (
+            "0 disables color limiting; 2–256 sets the posterize levels "
+            "per RGB channel."
+        ),
+        "extract_label_label": "Extract label to a separate file",
+        "extract_label_help": (
+            "For exact 800×480 images, the 480×100 area starting at "
+            "X=160 / Y=320 is saved as *_lbl.mib."
+        ),
+        "export_dialog_title": "MIB2STD BOOT Image",
+        "export_button": "Export",
+        "export_explanation": (
+            "Color levels: 0 keeps the original color range. Lower values "
+            "reduce the number of color shades and may reduce file size, "
+            "but can create visible color banding.\n\n"
+            "Label: For 800×480 images, this optionally extracts the "
+            "480×100 area at X=160 / Y=320 into a separate *_lbl.mib file. "
+            "The extracted area in the main MIB file is replaced with the "
+            "format's placeholder values."
+        ),
+        "remote_not_supported": "Remote files are not supported by this plug-in.",
+        "width_even": "Invalid resolution: The image width must be even.",
+        "mib_requires_graya": (
+            "An MIB2 file must be an 8-bit PNG using grayscale and alpha."
+        ),
+        "unsupported_png_color": "Unsupported PNG color type.",
+        "invalid_pixel_data": "Invalid pixel data: expected {expected}, got {actual}.",
+        "not_png": "The file is not a valid PNG/MIB2 container.",
+        "damaged_chunk": "Damaged PNG chunk.",
+        "invalid_ihdr": "Invalid PNG IHDR chunk.",
+        "invalid_image_size": "Invalid image size.",
+        "only_8bit": "Only 8-bit PNG files are supported.",
+        "unsupported_png_type": "PNG color type {color_type} is not supported.",
+        "unsupported_compression": "Unsupported PNG compression method.",
+        "interlaced_not_supported": "Interlaced PNG/MIB2 files are not supported.",
+        "crc_error": "CRC error in PNG/MIB2 container.",
+        "incomplete_png": "Incomplete PNG/MIB2 container.",
+        "png_unpack_failed": "PNG data could not be decompressed: {error}",
+        "invalid_png_length": (
+            "Invalid PNG data length: expected {expected}, got {actual}."
+        ),
+        "unknown_png_filter": "Unknown PNG filter type {filter_type}.",
+        "cannot_convert_rgb": "PNG color type cannot be converted to RGB.",
+        "invalid_mib_pixels": "Invalid MIB2 pixel data.",
+        "invalid_rgb_pixels": "Invalid RGB pixel data.",
+        "progress_decode": "Decoding MIB2 image …",
+        "progress_encode": "Encoding MIB2 image …",
+        "opening": "Opening “{name}” …",
+    },
+    "de": {
+        "load_doc_title": "MIB2STD-Bootbild laden",
+        "load_doc_help": (
+            "Lädt einen MIB2STD-PNG-Container und rekonstruiert das RGB-Bild "
+            "mit der ursprünglichen MIB2-Konvertierungsformel."
+        ),
+        "export_doc_title": "MIB2STD-Bootbild exportieren",
+        "export_doc_help": (
+            "Kodiert ein GIMP-Bild als MIB2STD-Graustufen-/Alpha-PNG. "
+            "Optional werden die Farbstufen begrenzt und bei 800×480 Pixeln "
+            "der 480×100-Pixel-Labelbereich extrahiert."
+        ),
+        "attribution": "John Tomatos; GIMP-3.x-Portierung von MrGame11",
+        "limit_colors_label": "Farbstufen begrenzen",
+        "limit_colors_help": (
+            "0 deaktiviert die Begrenzung; 2–256 legt die Posterize-Stufen "
+            "pro RGB-Kanal fest."
+        ),
+        "extract_label_label": "Label in separate Datei extrahieren",
+        "extract_label_help": (
+            "Bei exakt 800×480 Pixeln wird der Bereich 480×100 Pixel ab "
+            "X=160 / Y=320 als *_lbl.mib gespeichert."
+        ),
+        "export_dialog_title": "MIB2STD BOOT Image",
+        "export_button": "Exportieren",
+        "export_explanation": (
+            "Farbstufen: 0 behält den ursprünglichen Farbumfang. Niedrigere "
+            "Werte reduzieren die Anzahl der Farbabstufungen und können die "
+            "Dateigröße verringern, können aber sichtbare Farbstufen erzeugen.\n\n"
+            "Label: Bei 800×480-Bildern wird optional der Bereich 480×100 "
+            "Pixel ab X=160 / Y=320 als separate *_lbl.mib-Datei exportiert. "
+            "Der extrahierte Bereich wird in der Haupt-MIB durch die "
+            "Platzhalterwerte des Formats ersetzt."
+        ),
+        "remote_not_supported": (
+            "Remote-Dateien werden von diesem Plugin nicht unterstützt."
+        ),
+        "width_even": "Ungültige Auflösung: Die Bildbreite muss gerade sein.",
+        "mib_requires_graya": (
+            "Eine MIB2-Datei muss ein 8-Bit-PNG mit Graustufen- und "
+            "Alphakanal sein."
+        ),
+        "unsupported_png_color": "Nicht unterstützter PNG-Farbtyp.",
+        "invalid_pixel_data": (
+            "Ungültige Pixeldaten: erwartet {expected}, erhalten {actual}."
+        ),
+        "not_png": "Die Datei ist kein gültiger PNG/MIB2-Container.",
+        "damaged_chunk": "Beschädigter PNG-Chunk.",
+        "invalid_ihdr": "Ungültiger PNG-IHDR-Chunk.",
+        "invalid_image_size": "Ungültige Bildgröße.",
+        "only_8bit": "Es werden nur 8-Bit-PNG-Dateien unterstützt.",
+        "unsupported_png_type": (
+            "PNG-Farbtyp {color_type} wird nicht unterstützt."
+        ),
+        "unsupported_compression": "Nicht unterstützte PNG-Kompressionsmethode.",
+        "interlaced_not_supported": (
+            "Interlaced PNG/MIB2-Dateien werden nicht unterstützt."
+        ),
+        "crc_error": "CRC-Fehler im PNG/MIB2-Container.",
+        "incomplete_png": "Unvollständiger PNG/MIB2-Container.",
+        "png_unpack_failed": (
+            "PNG-Daten konnten nicht entpackt werden: {error}"
+        ),
+        "invalid_png_length": (
+            "Ungültige PNG-Datenlänge: erwartet {expected}, erhalten {actual}."
+        ),
+        "unknown_png_filter": "Unbekannter PNG-Filtertyp {filter_type}.",
+        "cannot_convert_rgb": (
+            "PNG-Farbtyp kann nicht nach RGB konvertiert werden."
+        ),
+        "invalid_mib_pixels": "Ungültige MIB2-Pixeldaten.",
+        "invalid_rgb_pixels": "Ungültige RGB-Pixeldaten.",
+        "progress_decode": "MIB2-Bild wird dekodiert …",
+        "progress_encode": "MIB2-Bild wird kodiert …",
+        "opening": "„{name}“ wird geöffnet …",
+    },
+}
+
+
+def _detect_language():
+    """
+    Detect the active GLib/system language.
+
+    German is currently translated explicitly. All other languages use the
+    English fallback, making it safe to add more translation dictionaries
+    later without changing plug-in logic.
+    """
+    try:
+        for language_name in GLib.get_language_names():
+            normalized = language_name.lower().replace("-", "_")
+            if normalized.startswith("de"):
+                return "de"
+    except Exception:
+        pass
+    return "en"
+
+
+LANGUAGE = _detect_language()
+
+
+def _t(key, **kwargs):
+    """Return a localized string, falling back to English."""
+    value = TRANSLATIONS.get(LANGUAGE, TRANSLATIONS["en"]).get(
+        key, TRANSLATIONS["en"].get(key, key)
+    )
+    if kwargs:
+        return value.format(**kwargs)
+    return value
 
 
 class Mib2Error(Exception):
@@ -193,11 +367,11 @@ def write_png(path, width, height, color_type, pixels):
     """Write an 8-bit, non-interlaced PNG using filter type 0."""
     channels = {0: 1, 2: 3, 4: 2, 6: 4}.get(color_type)
     if channels is None:
-        raise Mib2Error("Nicht unterstützter PNG-Farbtyp.")
+        raise Mib2Error(_t("unsupported_png_color"))
     expected = width * height * channels
     if len(pixels) != expected:
         raise Mib2Error(
-            f"Ungültige Pixeldaten: erwartet {expected}, erhalten {len(pixels)}."
+            _t("invalid_pixel_data", expected=expected, actual=len(pixels))
         )
 
     stride = width * channels
@@ -233,7 +407,7 @@ def read_png(path):
         data = handle.read()
 
     if not data.startswith(PNG_SIGNATURE):
-        raise Mib2Error("Die Datei ist kein gültiger PNG/MIB2-Container.")
+        raise Mib2Error(_t("not_png"))
 
     offset = len(PNG_SIGNATURE)
     width = height = bit_depth = color_type = None
@@ -248,17 +422,17 @@ def read_png(path):
         crc_end = chunk_data_end + 4
 
         if crc_end > len(data):
-            raise Mib2Error("Beschädigter PNG-Chunk.")
+            raise Mib2Error(_t("damaged_chunk"))
 
         chunk_data = data[chunk_data_start:chunk_data_end]
         stored_crc = struct.unpack(">I", data[chunk_data_end:crc_end])[0]
         calculated_crc = zlib.crc32(chunk_type + chunk_data) & 0xFFFFFFFF
         if stored_crc != calculated_crc:
-            raise Mib2Error("CRC-Fehler im PNG/MIB2-Container.")
+            raise Mib2Error(_t("crc_error"))
 
         if chunk_type == b"IHDR":
             if length != 13:
-                raise Mib2Error("Ungültiger PNG-IHDR-Chunk.")
+                raise Mib2Error(_t("invalid_ihdr"))
             (
                 width,
                 height,
@@ -270,17 +444,17 @@ def read_png(path):
             ) = struct.unpack(">IIBBBBB", chunk_data)
 
             if width <= 0 or height <= 0:
-                raise Mib2Error("Ungültige Bildgröße.")
+                raise Mib2Error(_t("invalid_image_size"))
             if bit_depth != 8:
-                raise Mib2Error("Es werden nur 8-Bit-PNG-Dateien unterstützt.")
+                raise Mib2Error(_t("only_8bit"))
             if color_type not in (0, 2, 4, 6):
                 raise Mib2Error(
-                    f"PNG-Farbtyp {color_type} wird nicht unterstützt."
+                    _t("unsupported_png_type", color_type=color_type)
                 )
             if compression != 0 or filter_method != 0:
-                raise Mib2Error("Nicht unterstützte PNG-Kompressionsmethode.")
+                raise Mib2Error(_t("unsupported_compression"))
             if interlace != 0:
-                raise Mib2Error("Interlaced PNG/MIB2-Dateien werden nicht unterstützt.")
+                raise Mib2Error(_t("interlaced_not_supported"))
 
         elif chunk_type == b"IDAT":
             compressed.extend(chunk_data)
@@ -292,7 +466,7 @@ def read_png(path):
         offset = crc_end
 
     if width is None or not compressed or not saw_iend:
-        raise Mib2Error("Unvollständiger PNG/MIB2-Container.")
+        raise Mib2Error(_t("incomplete_png"))
 
     channels = {0: 1, 2: 3, 4: 2, 6: 4}[color_type]
     bytes_per_pixel = channels
@@ -301,12 +475,12 @@ def read_png(path):
     try:
         raw = zlib.decompress(bytes(compressed))
     except zlib.error as exc:
-        raise Mib2Error(f"PNG-Daten konnten nicht entpackt werden: {exc}") from exc
+        raise Mib2Error(_t("png_unpack_failed", error=exc)) from exc
 
     expected = height * (stride + 1)
     if len(raw) != expected:
         raise Mib2Error(
-            f"Ungültige PNG-Datenlänge: erwartet {expected}, erhalten {len(raw)}."
+            _t("invalid_png_length", expected=expected, actual=len(raw))
         )
 
     pixels = bytearray(width * height * channels)
@@ -342,7 +516,7 @@ def read_png(path):
                     row[x] + _paeth_predictor(left, up, up_left)
                 ) & 0xFF
         elif filter_type != 0:
-            raise Mib2Error(f"Unbekannter PNG-Filtertyp {filter_type}.")
+            raise Mib2Error(_t("unknown_png_filter", filter_type=filter_type))
 
         start = y * stride
         pixels[start:start + stride] = row
@@ -380,7 +554,7 @@ def png_pixels_to_rgb(width, height, color_type, pixels):
             rgb[dst:dst + 3] = bytes((gray, gray, gray))
         return bytes(rgb)
 
-    raise Mib2Error("PNG-Farbtyp kann nicht nach RGB konvertiert werden.")
+    raise Mib2Error(_t("cannot_convert_rgb"))
 
 
 # ---------------------------------------------------------------------------
@@ -390,12 +564,12 @@ def png_pixels_to_rgb(width, height, color_type, pixels):
 def decode_mib2_to_rgb(width, height, graya_pixels):
     """Convert packed MIB2 grayscale+alpha pixels to ordinary RGB."""
     if width % 2 != 0:
-        raise Mib2Error("Ungültige Auflösung: Die Breite muss gerade sein.")
+        raise Mib2Error(_t("width_even"))
     if len(graya_pixels) != width * height * 2:
-        raise Mib2Error("Ungültige MIB2-Pixeldaten.")
+        raise Mib2Error(_t("invalid_mib_pixels"))
 
     rgb = bytearray(width * height * 3)
-    Gimp.progress_init("MIB2-Bild wird dekodiert …")
+    Gimp.progress_init(_t("progress_decode"))
 
     for y in range(height):
         row_src = y * width * 2
@@ -452,15 +626,15 @@ def posterize_rgb(rgb_pixels, levels):
 def encode_rgb_to_mib2(width, height, rgb_pixels, extract_label):
     """Convert packed RGB pixels to MIB2 grayscale+alpha bytes."""
     if width % 2 != 0:
-        raise Mib2Error("Ungültige Auflösung: Die Breite muss gerade sein.")
+        raise Mib2Error(_t("width_even"))
     if len(rgb_pixels) != width * height * 3:
-        raise Mib2Error("Ungültige RGB-Pixeldaten.")
+        raise Mib2Error(_t("invalid_rgb_pixels"))
 
     extract_label = bool(extract_label and width == 800 and height == 480)
     mib = bytearray(width * height * 2)
     label = bytearray(LABEL_WIDTH * LABEL_HEIGHT * 2) if extract_label else None
 
-    Gimp.progress_init("MIB2-Bild wird kodiert …")
+    Gimp.progress_init(_t("progress_encode"))
 
     for y in range(height):
         src_row = y * width * 3
@@ -648,16 +822,13 @@ def load_mib2_run(
     try:
         path = file.get_path()
         if not path:
-            raise Mib2Error("Remote-Dateien werden von diesem Plugin nicht unterstützt.")
+            raise Mib2Error(_t("remote_not_supported"))
 
-        Gimp.progress_init(f"„{file.get_basename()}“ wird geöffnet …")
+        Gimp.progress_init(_t("opening", name=file.get_basename()))
         width, height, color_type, pixels = read_png(path)
 
         if color_type != 4:
-            raise Mib2Error(
-                "Eine MIB2-Datei muss ein 8-Bit-PNG mit "
-                "Graustufen- und Alphakanal sein."
-            )
+            raise Mib2Error(_t("mib_requires_graya"))
 
         rgb_pixels = decode_mib2_to_rgb(width, height, pixels)
         image = _create_rgb_image(width, height, rgb_pixels)
@@ -692,9 +863,35 @@ def _show_export_dialog(procedure, config):
 
     GimpUi.init(PLUGIN_BINARY)
     dialog = GimpUi.ProcedureDialog.new(
-        procedure, config, "MIB2STD BOOT Image"
+        procedure, config, _t("export_dialog_title")
     )
-    dialog.fill(["lim-colors", "extract-label"])
+
+    # GimpProcedureDialog explicitly supports additional labels which can be
+    # packed together with procedure properties. This keeps the explanation
+    # in the same export dialog without changing the export configuration.
+    info_label = dialog.get_label(
+        "mib2-export-explanation",
+        _t("export_explanation"),
+        False,
+        False,
+    )
+    try:
+        info_label.set_line_wrap(True)
+        info_label.set_xalign(0.0)
+        info_label.set_max_width_chars(72)
+    except Exception:
+        # The label is still usable if a GTK binding lacks one of these
+        # presentation helpers.
+        pass
+
+    # fill_list() is the language-binding friendly variant of fill().
+    dialog.fill_list([
+        "mib2-export-explanation",
+        "lim-colors",
+        "extract-label",
+    ])
+    dialog.set_ok_label(_t("export_button"))
+
     accepted = dialog.run()
     dialog.destroy()
     return accepted
@@ -719,7 +916,7 @@ def export_mib2_run(
 
         path = file.get_path()
         if not path:
-            raise Mib2Error("Remote-Dateien werden von diesem Plugin nicht unterstützt.")
+            raise Mib2Error(_t("remote_not_supported"))
 
         limit_colors = int(config.get_property("lim-colors"))
         extract_label = bool(config.get_property("extract-label"))
@@ -727,7 +924,7 @@ def export_mib2_run(
         width, height, rgb_pixels = _export_image_to_rgb_via_temp_png(image)
 
         if width % 2 != 0:
-            raise Mib2Error("Ungültige Auflösung: Die Breite muss gerade sein.")
+            raise Mib2Error(_t("width_even"))
 
         if limit_colors > 0:
             rgb_pixels = posterize_rgb(rgb_pixels, limit_colors)
@@ -776,13 +973,12 @@ class Mib2ImagePlugin(Gimp.PlugIn):
                 None,
             )
             procedure.set_documentation(
-                "MIB2STD-Bootbild laden",
-                "Lädt einen MIB2STD-PNG-Container und rekonstruiert "
-                "das RGB-Bild mit der ursprünglichen MIB2-Formel.",
+                _t("load_doc_title"),
+                _t("load_doc_help"),
                 None,
             )
             procedure.set_attribution(
-                "John Tomatos; GIMP-3-Portierung",
+                _t("attribution"),
                 "John Tomatos",
                 "2021–2026",
             )
@@ -803,14 +999,12 @@ class Mib2ImagePlugin(Gimp.PlugIn):
                 None,
             )
             procedure.set_documentation(
-                "MIB2STD-Bootbild exportieren",
-                "Kodiert ein GIMP-Bild als MIB2STD-Graustufen-/Alpha-PNG. "
-                "Optional werden die Farben begrenzt und bei 800×480 Pixeln "
-                "das 480×100-Pixel-Label extrahiert.",
+                _t("export_doc_title"),
+                _t("export_doc_help"),
                 None,
             )
             procedure.set_attribution(
-                "John Tomatos; GIMP-3-Portierung",
+                _t("attribution"),
                 "John Tomatos",
                 "2021–2026",
             )
@@ -823,9 +1017,8 @@ class Mib2ImagePlugin(Gimp.PlugIn):
 
             procedure.add_int_argument(
                 "lim-colors",
-                "Farbstufen begrenzen",
-                "0 deaktiviert die Begrenzung; 2–256 legt die "
-                "Posterize-Stufen pro RGB-Kanal fest.",
+                _t("limit_colors_label"),
+                _t("limit_colors_help"),
                 0,
                 256,
                 0,
@@ -833,9 +1026,8 @@ class Mib2ImagePlugin(Gimp.PlugIn):
             )
             procedure.add_boolean_argument(
                 "extract-label",
-                "Label in separate Datei extrahieren",
-                "Bei exakt 800×480 Pixeln wird der Bereich 480×100 Pixel "
-                "ab Position 160/320 als *_lbl.mib gespeichert.",
+                _t("extract_label_label"),
+                _t("extract_label_help"),
                 True,
                 GObject.ParamFlags.READWRITE,
             )
@@ -844,5 +1036,5 @@ class Mib2ImagePlugin(Gimp.PlugIn):
         return None
 
 
-_log("INFO", f"Starting plug-in binary={PLUGIN_BINARY}")
+_log("INFO", f"Starting plug-in binary={PLUGIN_BINARY}, language={LANGUAGE}")
 Gimp.main(Mib2ImagePlugin.__gtype__, sys.argv)
