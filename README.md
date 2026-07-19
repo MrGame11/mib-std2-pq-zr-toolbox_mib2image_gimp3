@@ -1,4 +1,4 @@
-<img width="1024" height="1024" alt="260719_Logo-2" src="https://github.com/user-attachments/assets/79c40151-aa88-4594-b06f-e0d9a6efd21d" />
+<img width="500" height="500" alt="260719_Logo-2" src="https://github.com/user-attachments/assets/79c40151-aa88-4594-b06f-e0d9a6efd21d" />
 
 # mib2image Gimp 3.x
 ⚠️ **This tool version is only compatible with MIB STD2 PQ/ZR Technisat/Preh units and is NOT COMPATIBLE with MIB2 STD Delphi and MIB2 HIGH Harman units!** ⚠️
