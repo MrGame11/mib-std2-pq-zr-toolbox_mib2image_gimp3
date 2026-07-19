@@ -4,7 +4,7 @@
 # mib2image_gimp3
 # MIB2STD boot image loader/exporter for GIMP 3.x
 #
-# Version: 1.3.4
+# Version: 1.4.0
 #
 # Copyright (C) 2003, 2005 Manish Singh <yosh@gimp.org>
 # Copyright (C) 2021 John Tomatos
@@ -51,7 +51,7 @@ mib2image_gimp3
 
 MIB2STD boot image loader and exporter for GIMP 3.x.
 
-Version: 1.3.4
+Version: 1.4.0
 Author / GIMP 3.x port: MrGame11 (2026)
 Project: https://github.com/MrGame11/mib-std2-pq-zr-toolbox_mib2image_gimp3
 License: GNU GPL v3 or later (GPL-3.0-or-later)
@@ -82,7 +82,7 @@ project or endorsed by The GIMP Development Team.
 """
 
 
-__version__ = "1.3.4"
+__version__ = "1.4.0"
 __author__ = "MrGame11"
 __license__ = "GPL-3.0-or-later"
 __url__ = "https://github.com/MrGame11/mib-std2-pq-zr-toolbox_mib2image_gimp3"
@@ -107,7 +107,7 @@ LOAD_PROC = "file-mib2-load"
 EXPORT_PROC = "file-mib2-export"
 SELECT_LABEL_PROC = "plug-in-mib2image-select-label-area"
 PLUGIN_BINARY = os.path.splitext(os.path.basename(__file__))[0]
-PLUGIN_VERSION = "1.3.4"
+PLUGIN_VERSION = "1.4.0"
 FORMAT_NAME = "MIB2STD BOOT Image"
 MIME_TYPE = "image/mib2"
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mib2image.log")
@@ -141,6 +141,15 @@ TRANSLATIONS = {
             "0 disables color limiting; 2–256 sets the posterize levels "
             "per RGB channel."
         ),
+        "quality_mode_label": "Encoding quality",
+        "quality_mode_help": (
+            "Fast / original uses the original encoder formula. "
+            "High quality / optimized is slower, but searches for better "
+            "packed MIB2 chroma values to reduce roundtrip color error "
+            "after decoding."
+        ),
+        "quality_mode_fast": "Fast / original",
+        "quality_mode_high": "High quality / optimized (computationally intensive)",
         "extract_label_label": "Extract label to a separate file",
         "extract_label_help": (
             "For exact 800×480 images, the 480×100 area starting at "
@@ -236,6 +245,9 @@ TRANSLATIONS = {
             "format's placeholder values.\n\n"
             "Image width: The image width must always be an even number of pixels. "
             "Images with an odd width cannot be exported to the MIB2 format.\n\n"
+            "Encoding quality: Fast / original uses the original encoder. "
+            "High quality / optimized is slower, but searches for better "
+            "packed values to reduce visible color errors after a MIB2 roundtrip.\n\n"
             "Additional tools: Use “Calculate size” to estimate the resulting file size. Automatic optimization is computationally intensive and disables manual color-level input; when it is disabled, the maximum-size controls are disabled. Calculating the size is also computationally intensive. The label area can be selected from Select → mib2image – Select label area."
         ),
         "remote_not_supported": "Remote files are not supported by this plug-in.",
@@ -285,6 +297,15 @@ TRANSLATIONS = {
             "0 deaktiviert die Begrenzung; 2–256 legt die Posterize-Stufen "
             "pro RGB-Kanal fest."
         ),
+        "quality_mode_label": "Kodierungsqualität",
+        "quality_mode_help": (
+            "Schnell / original verwendet die ursprüngliche Encoder-Formel. "
+            "Hohe Qualität / optimiert ist langsamer, sucht aber bessere "
+            "gepackte MIB2-Chroma-Werte, um den Roundtrip-Farbfehler nach "
+            "dem Decoding zu verringern."
+        ),
+        "quality_mode_fast": "Schnell / original",
+        "quality_mode_high": "Hohe Qualität / optimiert (rechenintensiv)",
         "extract_label_label": "Label in separate Datei extrahieren",
         "extract_label_help": (
             "Bei exakt 800×480 Pixeln wird der Bereich 480×100 Pixel ab "
@@ -821,13 +842,113 @@ def posterize_rgb(rgb_pixels, levels):
     return bytes(result)
 
 
-def encode_rgb_to_mib2(width, height, rgb_pixels, extract_label):
+def _encode_pair_fast_values(r0, g0, b0, r1, g1, b1):
+    """Original MIB2 encoder approximation from the legacy plug-in."""
+    averaged_red = math.isqrt((r0 * r0 + r1 * r1) // 2)
+    packed0 = (
+        ((b0 - averaged_red) // 2 + 128)
+        + ((b0 - g0) // 2 + 128)
+    ) // 2
+
+    averaged_blue = math.isqrt((b1 * b1 + b0 * b0) // 2)
+    packed1 = (
+        ((r1 - averaged_blue) // 2 + 128)
+        + ((r1 - g1) // 2 + 128)
+    ) // 2
+
+    return _clamp_u8(packed0), _clamp_u8(packed1)
+
+
+def _decode_pair_red_blue(green, gb, gr):
+    blue = _clamp_u8(
+        green - 512 + ((gr * 4 + gb * 8) // 3)
+    )
+    red = _clamp_u8(
+        green - 512 + ((gb * 4 + gr * 8) // 3)
+    )
+    return red, blue
+
+
+def _pair_roundtrip_error(r0, g0, b0, r1, g1, b1, gb, gr):
+    dec_r0, dec_b0 = _decode_pair_red_blue(g0, gb, gr)
+    dec_r1, dec_b1 = _decode_pair_red_blue(g1, gb, gr)
+    return (
+        (dec_r0 - r0) * (dec_r0 - r0)
+        + (dec_b0 - b0) * (dec_b0 - b0)
+        + (dec_r1 - r1) * (dec_r1 - r1)
+        + (dec_b1 - b1) * (dec_b1 - b1)
+    )
+
+
+def _encode_pair_high_quality_values(r0, g0, b0, r1, g1, b1):
+    """
+    Search locally for better packed chroma values than the original encoder.
+
+    The MIB2 format itself is lossy, so this cannot make the conversion
+    lossless. It does try to reduce the roundtrip RGB->MIB2->RGB error for
+    each horizontal pixel pair.
+    """
+    fast_gb, fast_gr = _encode_pair_fast_values(r0, g0, b0, r1, g1, b1)
+
+    # Continuous least-squares seed from the average target red/blue offsets.
+    avg_red_target = (
+        (r0 - g0 + 512) + (r1 - g1 + 512)
+    ) / 2.0
+    avg_blue_target = (
+        (b0 - g0 + 512) + (b1 - g1 + 512)
+    ) / 2.0
+
+    ideal_gb = _clamp_u8(
+        int(round((2.0 * avg_blue_target - avg_red_target) / 4.0))
+    )
+    ideal_gr = _clamp_u8(
+        int(round((2.0 * avg_red_target - avg_blue_target) / 4.0))
+    )
+
+    best_gb, best_gr = fast_gb, fast_gr
+    best_error = _pair_roundtrip_error(
+        r0, g0, b0, r1, g1, b1, best_gb, best_gr
+    )
+
+    visited = set()
+
+    def test_neighborhood(seed_gb, seed_gr):
+        nonlocal best_gb, best_gr, best_error
+
+        start_gb = max(0, seed_gb - HIGH_QUALITY_SEARCH_RADIUS)
+        end_gb = min(255, seed_gb + HIGH_QUALITY_SEARCH_RADIUS)
+        start_gr = max(0, seed_gr - HIGH_QUALITY_SEARCH_RADIUS)
+        end_gr = min(255, seed_gr + HIGH_QUALITY_SEARCH_RADIUS)
+
+        for candidate_gb in range(start_gb, end_gb + 1):
+            for candidate_gr in range(start_gr, end_gr + 1):
+                key = (candidate_gb, candidate_gr)
+                if key in visited:
+                    continue
+                visited.add(key)
+
+                error = _pair_roundtrip_error(
+                    r0, g0, b0, r1, g1, b1, candidate_gb, candidate_gr
+                )
+                if error < best_error:
+                    best_error = error
+                    best_gb, best_gr = candidate_gb, candidate_gr
+
+    test_neighborhood(fast_gb, fast_gr)
+    test_neighborhood(ideal_gb, ideal_gr)
+    visited.add((0, 0))
+    visited.add((255, 255))
+    return best_gb, best_gr
+
+
+def encode_rgb_to_mib2(width, height, rgb_pixels, extract_label, quality_mode):
     """Convert packed RGB pixels to MIB2 grayscale+alpha bytes."""
     if width % 2 != 0:
         raise Mib2Error(_t("width_even"))
     if len(rgb_pixels) != width * height * 3:
         raise Mib2Error(_t("invalid_rgb_pixels"))
 
+    quality_mode = _normalize_quality_mode(quality_mode)
     extract_label = bool(extract_label and width == 800 and height == 480)
     mib = bytearray(width * height * 2)
     label = bytearray(LABEL_WIDTH * LABEL_HEIGHT * 2) if extract_label else None
@@ -845,25 +966,18 @@ def encode_rgb_to_mib2(width, height, rgb_pixels, extract_label):
             r0, g0, b0 = rgb_pixels[src0:src0 + 3]
             r1, g1, b1 = rgb_pixels[src1:src1 + 3]
 
-            # Even pixel: combine the two red values, exactly as in the
-            # original plug-in. Python's // preserves Python 2 integer
-            # division semantics, including negative values.
-            averaged_red = math.isqrt((r0 * r0 + r1 * r1) // 2)
-            packed0 = (
-                ((b0 - averaged_red) // 2 + 128)
-                + ((b0 - g0) // 2 + 128)
-            ) // 2
-
-            # Odd pixel: combine the two blue values.
-            averaged_blue = math.isqrt((b1 * b1 + b0 * b0) // 2)
-            packed1 = (
-                ((r1 - averaged_blue) // 2 + 128)
-                + ((r1 - g1) // 2 + 128)
-            ) // 2
+            if quality_mode == QUALITY_HIGH:
+                gb, gr = _encode_pair_high_quality_values(
+                    r0, g0, b0, r1, g1, b1
+                )
+            else:
+                gb, gr = _encode_pair_fast_values(
+                    r0, g0, b0, r1, g1, b1
+                )
 
             pair = (
-                (_clamp_u8(packed0), g0),
-                (_clamp_u8(packed1), g1),
+                (gb, g0),
+                (gr, g1),
             )
 
             for pair_offset, pixel in enumerate(pair):
@@ -1366,6 +1480,10 @@ def _configure_color_levels_widget(dialog, config):
 
 AUTO_LEVEL_CANDIDATES = (256, 224, 192, 160, 128, 96, 64, 48, 32, 24, 16, 12, 8, 6, 4, 3, 2)
 
+QUALITY_FAST = 0
+QUALITY_HIGH = 1
+HIGH_QUALITY_SEARCH_RADIUS = 3
+
 
 def _get_image_size(image):
     try:
@@ -1379,6 +1497,26 @@ def _normalize_limit_colors(levels):
     if levels <= 0:
         return 0
     return max(2, min(256, levels))
+
+
+def _normalize_quality_mode(value):
+    try:
+        value = int(value)
+    except Exception:
+        value = QUALITY_FAST
+    return QUALITY_HIGH if value == QUALITY_HIGH else QUALITY_FAST
+
+
+def _quality_mode_name(value):
+    return "high" if _normalize_quality_mode(value) == QUALITY_HIGH else "fast"
+
+
+def _quality_mode_label(value):
+    return (
+        _t("quality_mode_high")
+        if _normalize_quality_mode(value) == QUALITY_HIGH
+        else _t("quality_mode_fast")
+    )
 
 
 def _normalize_max_size_value(value):
@@ -1457,12 +1595,12 @@ def _show_info_dialog(parent, title, message):
     dialog.destroy()
 
 
-def _build_export_payload_for_levels(image, limit_colors, extract_label):
+def _build_export_payload_for_levels(image, limit_colors, extract_label, quality_mode):
     width, height, rgb_pixels, posterize_method = _export_image_to_rgb_via_temp_png(
         image, limit_colors
     )
     mib_pixels, label_pixels = encode_rgb_to_mib2(
-        width, height, rgb_pixels, extract_label
+        width, height, rgb_pixels, extract_label, quality_mode
     )
     main_png_bytes = build_png_bytes(width, height, 4, mib_pixels)
     label_png_bytes = None
@@ -1480,6 +1618,9 @@ def _build_export_payload_for_levels(image, limit_colors, extract_label):
         "requested_levels": limit_colors,
         "used_levels": _normalize_limit_colors(limit_colors),
         "posterize_method": posterize_method,
+        "quality_mode": _normalize_quality_mode(quality_mode),
+        "quality_mode_name": _quality_mode_name(quality_mode),
+        "quality_mode_label": _quality_mode_label(quality_mode),
         "mib_pixels": mib_pixels,
         "label_pixels": label_pixels,
         "main_png_bytes": main_png_bytes,
@@ -1497,6 +1638,7 @@ def _build_export_plan(
     auto_size,
     max_size_value,
     max_size_unit,
+    quality_mode,
 ):
     extract_label = bool(extract_label)
     auto_size = bool(auto_size)
@@ -1506,7 +1648,7 @@ def _build_export_plan(
         best_plan = None
         fallback_plan = None
         for candidate in AUTO_LEVEL_CANDIDATES:
-            plan = _build_export_payload_for_levels(image, candidate, extract_label)
+            plan = _build_export_payload_for_levels(image, candidate, extract_label, quality_mode)
             plan["requested_levels"] = limit_colors
             plan["used_levels"] = candidate
             plan["auto_optimize"] = True
@@ -1525,7 +1667,7 @@ def _build_export_plan(
 
         return best_plan
 
-    plan = _build_export_payload_for_levels(image, limit_colors, extract_label)
+    plan = _build_export_payload_for_levels(image, limit_colors, extract_label, quality_mode)
     plan["requested_levels"] = limit_colors
     plan["used_levels"] = _normalize_limit_colors(limit_colors)
     plan["auto_optimize"] = False
@@ -1624,8 +1766,6 @@ def _show_export_dialog(procedure, config, image):
         procedure, config, _t("export_dialog_title")
     )
 
-    # Build the property widgets individually so we can control their exact
-    # vertical order in the export dialog.
     try:
         lim_widget = dialog.get_widget(
             "lim-colors",
@@ -1667,10 +1807,42 @@ def _show_export_dialog(procedure, config, image):
         else None
     )
 
-    # -------------------------------------------------------------------
-    # Maximum file size: label [value] [unit]
-    # Keep the label/value spacing compact instead of expanding the label.
-    # -------------------------------------------------------------------
+    quality_row = Gtk.Box(
+        orientation=Gtk.Orientation.HORIZONTAL,
+        spacing=6,
+    )
+    quality_label = Gtk.Label(
+        label=_t("quality_mode_label")
+    )
+    try:
+        quality_label.set_xalign(0.0)
+    except Exception:
+        pass
+
+    quality_combo = Gtk.ComboBoxText()
+    quality_combo.append("fast", _t("quality_mode_fast"))
+    quality_combo.append("high", _t("quality_mode_high"))
+    quality_combo.set_tooltip_text(_t("quality_mode_help"))
+    current_quality = _normalize_quality_mode(
+        config.get_property("quality-mode")
+    )
+    quality_combo.set_active_id(
+        "high" if current_quality == QUALITY_HIGH else "fast"
+    )
+
+    quality_row.pack_start(
+        quality_label,
+        False,
+        False,
+        0,
+    )
+    quality_row.pack_start(
+        quality_combo,
+        False,
+        False,
+        0,
+    )
+
     max_size_row = Gtk.Box(
         orientation=Gtk.Orientation.HORIZONTAL,
         spacing=6,
@@ -1719,7 +1891,6 @@ def _show_export_dialog(procedure, config, image):
     )
     unit_combo.set_active_id(current_unit)
 
-    # No expanding spacer between label and input.
     max_size_row.pack_start(
         max_size_label,
         False,
@@ -1739,9 +1910,6 @@ def _show_export_dialog(procedure, config, image):
         0,
     )
 
-    # -------------------------------------------------------------------
-    # Estimated size + optional warning.
-    # -------------------------------------------------------------------
     size_box = Gtk.Box(
         orientation=Gtk.Orientation.VERTICAL,
         spacing=4,
@@ -1787,9 +1955,6 @@ def _show_export_dialog(procedure, config, image):
         0,
     )
 
-    # -------------------------------------------------------------------
-    # Exact requested ordering.
-    # -------------------------------------------------------------------
     options_box = Gtk.Box(
         orientation=Gtk.Orientation.VERTICAL,
         spacing=8,
@@ -1802,42 +1967,13 @@ def _show_export_dialog(procedure, config, image):
     except Exception:
         pass
 
-    options_box.pack_start(
-        lim_widget,
-        False,
-        False,
-        0,
-    )
-    options_box.pack_start(
-        auto_widget,
-        False,
-        False,
-        0,
-    )
-    options_box.pack_start(
-        max_size_row,
-        False,
-        False,
-        0,
-    )
-    options_box.pack_start(
-        extract_widget,
-        False,
-        False,
-        0,
-    )
-    options_box.pack_start(
-        size_box,
-        False,
-        False,
-        0,
-    )
-    options_box.pack_start(
-        verify_widget,
-        False,
-        False,
-        0,
-    )
+    options_box.pack_start(lim_widget, False, False, 0)
+    options_box.pack_start(quality_row, False, False, 0)
+    options_box.pack_start(auto_widget, False, False, 0)
+    options_box.pack_start(max_size_row, False, False, 0)
+    options_box.pack_start(extract_widget, False, False, 0)
+    options_box.pack_start(size_box, False, False, 0)
+    options_box.pack_start(verify_widget, False, False, 0)
 
     try:
         dialog.get_content_area().pack_start(
@@ -1872,45 +2008,51 @@ def _show_export_dialog(procedure, config, image):
             config.get_property("auto-size")
         )
 
-    def update_sensitivity(*_args):
-        # UI only. No encoding or size calculation.
-        auto_enabled = current_auto_size()
+    def current_quality_mode():
+        return (
+            QUALITY_HIGH
+            if (quality_combo.get_active_id() or "fast") == "high"
+            else QUALITY_FAST
+        )
 
+    def update_sensitivity(*_args):
+        auto_enabled = current_auto_size()
         try:
-            lim_widget.set_sensitive(
-                not auto_enabled
-            )
+            lim_widget.set_sensitive(not auto_enabled)
         except Exception:
             pass
-
         try:
-            max_size_row.set_sensitive(
-                auto_enabled
-            )
+            max_size_row.set_sensitive(auto_enabled)
         except Exception:
             pass
 
     def mark_estimate_stale(*_args):
         try:
-            size_value.set_text(
-                _t("estimate_stale")
-            )
+            size_value.set_text(_t("estimate_stale"))
             size_warning.hide()
         except Exception:
             pass
 
+    def sync_quality_mode(*_args):
+        try:
+            config.set_property(
+                "quality-mode",
+                current_quality_mode(),
+            )
+        except Exception as exc:
+            _log(
+                "WARNING",
+                f"Could not persist quality-mode: "
+                f"{type(exc).__name__}: {exc}",
+            )
+        mark_estimate_stale()
+
     def sync_max_size_value(*_args):
         if unit_state["converting"]:
             return
-
-        value = float(
-            max_size_spin.get_value()
-        )
+        value = float(max_size_spin.get_value())
         try:
-            config.set_property(
-                "max-size-value",
-                value,
-            )
+            config.set_property("max-size-value", value)
         except Exception as exc:
             _log(
                 "WARNING",
@@ -1920,123 +2062,79 @@ def _show_export_dialog(procedure, config, image):
         mark_estimate_stale()
 
     def convert_unit(*_args):
-        new_unit = (
-            unit_combo.get_active_id()
-            or unit_state["current"]
-        )
+        new_unit = unit_combo.get_active_id() or unit_state["current"]
         old_unit = unit_state["current"]
-
         if new_unit == old_unit:
             return
 
-        old_value = float(
-            max_size_spin.get_value()
-        )
-        new_value = _convert_size_value(
-            old_value,
-            old_unit,
-            new_unit,
-        )
+        old_value = float(max_size_spin.get_value())
+        new_value = _convert_size_value(old_value, old_unit, new_unit)
 
         unit_state["converting"] = True
         try:
             if new_unit == "bytes":
                 max_size_spin.set_digits(0)
-                max_size_spin.set_increments(
-                    1.0,
-                    1024.0,
-                )
+                max_size_spin.set_increments(1.0, 1024.0)
             elif new_unit == "kib":
                 max_size_spin.set_digits(2)
-                max_size_spin.set_increments(
-                    1.0,
-                    64.0,
-                )
+                max_size_spin.set_increments(1.0, 64.0)
             else:
                 max_size_spin.set_digits(3)
-                max_size_spin.set_increments(
-                    0.1,
-                    1.0,
-                )
+                max_size_spin.set_increments(0.1, 1.0)
 
-            max_size_spin.set_value(
-                new_value
-            )
-            config.set_property(
-                "max-size-value",
-                float(new_value),
-            )
+            max_size_spin.set_value(new_value)
+            config.set_property("max-size-value", float(new_value))
             config.set_property(
                 "max-size-unit",
-                _max_size_unit_to_index(
-                    new_unit
-                ),
+                _max_size_unit_to_index(new_unit),
             )
             unit_state["current"] = new_unit
-
             _log(
                 "INFO",
                 "Maximum size unit converted: "
-                f"{old_value} {old_unit} -> "
-                f"{new_value} {new_unit}.",
+                f"{old_value} {old_unit} -> {new_value} {new_unit}.",
             )
         finally:
             unit_state["converting"] = False
 
         mark_estimate_stale()
 
-    # Initial display precision.
     if current_unit == "bytes":
         max_size_spin.set_digits(0)
-        max_size_spin.set_increments(
-            1.0,
-            1024.0,
-        )
+        max_size_spin.set_increments(1.0, 1024.0)
     elif current_unit == "kib":
         max_size_spin.set_digits(2)
-        max_size_spin.set_increments(
-            1.0,
-            64.0,
-        )
+        max_size_spin.set_increments(1.0, 64.0)
     else:
         max_size_spin.set_digits(3)
-        max_size_spin.set_increments(
-            0.1,
-            1.0,
-        )
+        max_size_spin.set_increments(0.1, 1.0)
 
     def calculate_size(_button):
         try:
             limit_colors = _normalize_limit_colors(
                 config.get_property("lim-colors")
             )
-            extract_label = bool(
-                config.get_property("extract-label")
-            )
+            extract_label = bool(config.get_property("extract-label"))
             auto_size = current_auto_size()
-            max_size_value = float(
-                max_size_spin.get_value()
-            )
+            max_size_value = float(max_size_spin.get_value())
             max_size_unit = _normalize_max_size_unit(
                 unit_combo.get_active_id()
             )
+            quality_mode = current_quality_mode()
 
-            config.set_property(
-                "max-size-value",
-                max_size_value,
-            )
+            config.set_property("max-size-value", max_size_value)
             config.set_property(
                 "max-size-unit",
-                _max_size_unit_to_index(
-                    max_size_unit
-                ),
+                _max_size_unit_to_index(max_size_unit),
             )
+            config.set_property("quality-mode", quality_mode)
 
             _log(
                 "INFO",
                 "Estimate requested by user "
                 "(computationally intensive): "
                 f"color_levels={limit_colors}, "
+                f"quality_mode={_quality_mode_name(quality_mode)}, "
                 f"extract_label={extract_label}, "
                 f"auto_size={auto_size}, "
                 f"max_size_value={max_size_value}, "
@@ -2050,21 +2148,15 @@ def _show_export_dialog(procedure, config, image):
                 auto_size,
                 max_size_value,
                 max_size_unit,
+                quality_mode,
             )
 
-            size_value.set_text(
-                _format_size_info(plan)
-            )
+            size_value.set_text(_format_size_info(plan))
 
-            # The selected maximum is relevant when automatic optimization
-            # is enabled. Show a clearly visible warning if even the best
-            # tested result still exceeds the chosen limit.
             if auto_size and not plan["size_limit_met"]:
                 size_warning.set_markup(
                     '<span foreground="red"><b>'
-                    + GLib.markup_escape_text(
-                        _t("size_limit_warning")
-                    )
+                    + GLib.markup_escape_text(_t("size_limit_warning"))
                     + "</b></span>"
                 )
                 size_warning.show()
@@ -2078,102 +2170,51 @@ def _show_export_dialog(procedure, config, image):
                 f"label_size={plan['label_size']} bytes, "
                 f"total_size={plan['total_size']} bytes, "
                 f"used_levels={plan['used_levels']}, "
+                f"quality_mode={plan['quality_mode_name']}, "
                 f"size_limit_met={plan['size_limit_met']}.",
             )
         except Exception as exc:
-            size_value.set_text(
-                str(exc)
-            )
+            size_value.set_text(str(exc))
             size_warning.hide()
             _log(
                 "ERROR",
-                f"Estimate failed: "
-                f"{type(exc).__name__}: {exc}",
+                f"Estimate failed: {type(exc).__name__}: {exc}",
             )
 
     def show_help(_button):
-        _log(
-            "INFO",
-            "Export dialog: Help opened.",
-        )
+        _log("INFO", "Export dialog: Help opened.")
         _show_info_dialog(
             dialog,
             _t("help_dialog_title"),
             _t("export_explanation"),
         )
-        _log(
-            "INFO",
-            "Export dialog: Help closed.",
-        )
+        _log("INFO", "Export dialog: Help closed.")
 
-    # These signals only affect UI state / stale marker.
     if auto_check is not None:
-        auto_check.connect(
-            "toggled",
-            update_sensitivity,
-        )
-        auto_check.connect(
-            "toggled",
-            mark_estimate_stale,
-        )
-
+        auto_check.connect("toggled", update_sensitivity)
+        auto_check.connect("toggled", mark_estimate_stale)
     if lim_spin is not None:
-        lim_spin.connect(
-            "value-changed",
-            mark_estimate_stale,
-        )
-
+        lim_spin.connect("value-changed", mark_estimate_stale)
     if extract_check is not None:
-        extract_check.connect(
-            "toggled",
-            mark_estimate_stale,
-        )
+        extract_check.connect("toggled", mark_estimate_stale)
 
-    max_size_spin.connect(
-        "value-changed",
-        sync_max_size_value,
-    )
-    unit_combo.connect(
-        "changed",
-        convert_unit,
-    )
+    quality_combo.connect("changed", sync_quality_mode)
+    max_size_spin.connect("value-changed", sync_max_size_value)
+    unit_combo.connect("changed", convert_unit)
 
-    # Verification is intentionally not connected to size estimation.
     update_sensitivity()
 
     try:
-        estimate_button = Gtk.Button.new_with_label(
-            _t("estimate_button")
-        )
-        estimate_button.set_tooltip_text(
-            _t("estimate_idle")
-        )
-        estimate_button.connect(
-            "clicked",
-            calculate_size,
-        )
+        estimate_button = Gtk.Button.new_with_label(_t("estimate_button"))
+        estimate_button.set_tooltip_text(_t("estimate_idle"))
+        estimate_button.connect("clicked", calculate_size)
 
-        help_button = Gtk.Button.new_with_label(
-            _t("help_button")
-        )
-        help_button.connect(
-            "clicked",
-            show_help,
-        )
+        help_button = Gtk.Button.new_with_label(_t("help_button"))
+        help_button.connect("clicked", show_help)
 
         action_area = dialog.get_action_area()
-        action_area.pack_start(
-            estimate_button,
-            False,
-            False,
-            0,
-        )
-        action_area.pack_start(
-            help_button,
-            False,
-            False,
-            0,
-        )
+        action_area.pack_start(estimate_button, False, False, 0)
+        action_area.pack_start(help_button, False, False, 0)
         estimate_button.show()
         help_button.show()
 
@@ -2188,44 +2229,28 @@ def _show_export_dialog(procedure, config, image):
             f"{type(exc).__name__}: {exc}",
         )
 
-    accepted = bool(
-        dialog.run()
-    )
+    accepted = bool(dialog.run())
 
     if accepted:
         try:
-            final_value = float(
-                max_size_spin.get_value()
-            )
-            final_unit = _normalize_max_size_unit(
-                unit_combo.get_active_id()
-            )
-            config.set_property(
-                "max-size-value",
-                final_value,
-            )
+            final_value = float(max_size_spin.get_value())
+            final_unit = _normalize_max_size_unit(unit_combo.get_active_id())
+            final_quality = current_quality_mode()
+            config.set_property("max-size-value", final_value)
             config.set_property(
                 "max-size-unit",
-                _max_size_unit_to_index(
-                    final_unit
-                ),
+                _max_size_unit_to_index(final_unit),
             )
+            config.set_property("quality-mode", final_quality)
         except Exception as exc:
             _log(
                 "WARNING",
-                f"Could not persist maximum-size settings: "
+                f"Could not persist export dialog settings: "
                 f"{type(exc).__name__}: {exc}",
             )
-
-        _log(
-            "INFO",
-            "Export dialog: validated by user.",
-        )
+        _log("INFO", "Export dialog: validated by user.")
     else:
-        _log(
-            "INFO",
-            "Export dialog: cancelled by user.",
-        )
+        _log("INFO", "Export dialog: cancelled by user.")
 
     dialog.destroy()
     return accepted
@@ -2336,6 +2361,9 @@ def export_mib2_run(
         max_size_unit = _normalize_max_size_unit(
             config.get_property("max-size-unit")
         )
+        quality_mode = _normalize_quality_mode(
+            config.get_property("quality-mode")
+        )
         verify_export = bool(
             config.get_property("verify-export")
         )
@@ -2351,6 +2379,7 @@ def export_mib2_run(
         _log(
             "INFO",
             f"Export requested: target={path}, color_levels={limit_colors}, "
+            f"quality_mode={_quality_mode_name(quality_mode)}, "
             f"auto_size={auto_size}, max_size_value={max_size_value}, "
             f"max_size_unit={max_size_unit}, "
             f"verify_export={verify_export}, extract_label={extract_label}.",
@@ -2363,6 +2392,7 @@ def export_mib2_run(
             auto_size,
             max_size_value,
             max_size_unit,
+            quality_mode,
         )
 
         width = plan["width"]
@@ -2377,7 +2407,8 @@ def export_mib2_run(
         _log(
             "INFO",
             f"Export step: plan ready; requested_levels={plan['requested_levels']}, "
-            f"used_levels={plan['used_levels']}, posterize_method={plan['posterize_method']}, "
+            f"used_levels={plan['used_levels']}, quality_mode={plan['quality_mode_name']}, "
+            f"posterize_method={plan['posterize_method']}, "
             f"estimated_main={plan['main_size']} bytes, estimated_label={plan['label_size']} bytes, "
             f"estimated_total={plan['total_size']} bytes, size_limit_met={plan['size_limit_met']}."
         )
@@ -2410,6 +2441,7 @@ def export_mib2_run(
             f"main_size={main_size} bytes, label_size={label_size} bytes, total_size={total_size} bytes, "
             f"used_levels={plan['used_levels']}, requested_levels={plan['requested_levels']}, "
             f"auto_size={plan['auto_optimize']}, "
+            f"quality_mode={plan['quality_mode_name']}, "
             f"max_size_value={max_size_value}, max_size_unit={max_size_unit}, "
             f"size_limit_met={plan['size_limit_met']}, "
             f"posterize_method={plan['posterize_method']}."
@@ -2530,6 +2562,15 @@ class Mib2ImagePlugin(Gimp.PlugIn):
                 _t("auto_size_label"),
                 _t("auto_size_help"),
                 False,
+                GObject.ParamFlags.READWRITE,
+            )
+            procedure.add_int_aux_argument(
+                "quality-mode",
+                _t("quality_mode_label"),
+                _t("quality_mode_help"),
+                0,
+                1,
+                0,
                 GObject.ParamFlags.READWRITE,
             )
             procedure.add_double_aux_argument(
