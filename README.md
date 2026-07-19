@@ -25,7 +25,9 @@ Updated version of the mib2image converter from
 </table>
 
 
+<br><br>
 
+Old text from fork
 
 # MIB STD2 Toolbox
 ⚠️ **This toolbox version is only compatible with MIB STD2 PQ/ZR Technisat/Preh units and is NOT COMPATIBLE with MIB2 STD Delphi and MIB2 HIGH Harman units!** ⚠️
