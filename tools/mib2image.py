@@ -4,7 +4,7 @@
 # mib2image_gimp3
 # MIB2STD boot image loader/exporter for GIMP 3.x
 #
-# Version: 1.4.0
+# Version: 1.4.1
 #
 # Copyright (C) 2003, 2005 Manish Singh <yosh@gimp.org>
 # Copyright (C) 2021 John Tomatos
@@ -51,7 +51,7 @@ mib2image_gimp3
 
 MIB2STD boot image loader and exporter for GIMP 3.x.
 
-Version: 1.4.0
+Version: 1.4.1
 Author / GIMP 3.x port: MrGame11 (2026)
 Project: https://github.com/MrGame11/mib-std2-pq-zr-toolbox_mib2image_gimp3
 License: GNU GPL v3 or later (GPL-3.0-or-later)
@@ -82,7 +82,7 @@ project or endorsed by The GIMP Development Team.
 """
 
 
-__version__ = "1.4.0"
+__version__ = "1.4.1"
 __author__ = "MrGame11"
 __license__ = "GPL-3.0-or-later"
 __url__ = "https://github.com/MrGame11/mib-std2-pq-zr-toolbox_mib2image_gimp3"
@@ -107,12 +107,12 @@ LOAD_PROC = "file-mib2-load"
 EXPORT_PROC = "file-mib2-export"
 SELECT_LABEL_PROC = "plug-in-mib2image-select-label-area"
 PLUGIN_BINARY = os.path.splitext(os.path.basename(__file__))[0]
-PLUGIN_VERSION = "1.4.0"
-FORMAT_NAME = "MIB2STD BOOT Image"
+PLUGIN_VERSION = "1.4.1"
+FORMAT_NAME = "mib2image Export"
 MIME_TYPE = "image/mib2"
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mib2image.log")
 LOG_BACKUP_FILE = LOG_FILE + ".old"
-LOG_MAX_BYTES = 128 * 1024  # 128 KiB per log file
+LOG_MAX_BYTES = 256 * 1024  # 256 KiB per log file
 
 LABEL_X = 160
 LABEL_Y = 320
@@ -2015,6 +2015,75 @@ def _show_export_dialog(procedure, config, image):
             else QUALITY_FAST
         )
 
+    def sync_quality_from_config(*_args):
+        """Keep the manual quality combo in sync with ProcedureConfig resets."""
+        try:
+            quality_mode = _normalize_quality_mode(
+                config.get_property("quality-mode")
+            )
+            desired_id = (
+                "high"
+                if quality_mode == QUALITY_HIGH
+                else "fast"
+            )
+            if quality_combo.get_active_id() != desired_id:
+                quality_combo.set_active_id(desired_id)
+                _log(
+                    "INFO",
+                    "Export dialog: encoding quality UI synchronized "
+                    f"from config ({_quality_mode_name(quality_mode)}).",
+                )
+        except Exception as exc:
+            _log(
+                "WARNING",
+                f"Could not synchronize quality UI from config: "
+                f"{type(exc).__name__}: {exc}",
+            )
+
+    def sync_unit_from_config(*_args):
+        """Keep the manual unit combo/value in sync with ProcedureConfig resets."""
+        try:
+            desired_unit = _normalize_max_size_unit(
+                config.get_property("max-size-unit")
+            )
+            desired_value = _normalize_max_size_value(
+                config.get_property("max-size-value")
+            )
+
+            unit_state["converting"] = True
+            try:
+                if unit_combo.get_active_id() != desired_unit:
+                    unit_combo.set_active_id(desired_unit)
+
+                if desired_unit == "bytes":
+                    max_size_spin.set_digits(0)
+                    max_size_spin.set_increments(1.0, 1024.0)
+                elif desired_unit == "kib":
+                    max_size_spin.set_digits(2)
+                    max_size_spin.set_increments(1.0, 64.0)
+                else:
+                    max_size_spin.set_digits(3)
+                    max_size_spin.set_increments(0.1, 1.0)
+
+                if abs(max_size_spin.get_value() - desired_value) > 1e-9:
+                    max_size_spin.set_value(desired_value)
+
+                unit_state["current"] = desired_unit
+            finally:
+                unit_state["converting"] = False
+
+            _log(
+                "INFO",
+                "Export dialog: maximum-size unit/value UI synchronized "
+                "from config.",
+            )
+        except Exception as exc:
+            _log(
+                "WARNING",
+                f"Could not synchronize maximum-size UI from config: "
+                f"{type(exc).__name__}: {exc}",
+            )
+
     def update_sensitivity(*_args):
         auto_enabled = current_auto_size()
         try:
@@ -2201,6 +2270,37 @@ def _show_export_dialog(procedure, config, image):
     quality_combo.connect("changed", sync_quality_mode)
     max_size_spin.connect("value-changed", sync_max_size_value)
     unit_combo.connect("changed", convert_unit)
+
+    # ProcedureDialog's Reset button updates ProcedureConfig. Because quality
+    # and unit are represented by manual GTK widgets, listen for config changes
+    # and reflect reset/default values back into the UI.
+    try:
+        config.connect(
+            "notify::quality-mode",
+            sync_quality_from_config,
+        )
+    except Exception as exc:
+        _log(
+            "WARNING",
+            f"Could not connect quality-mode reset synchronization: "
+            f"{type(exc).__name__}: {exc}",
+        )
+
+    try:
+        config.connect(
+            "notify::max-size-unit",
+            sync_unit_from_config,
+        )
+        config.connect(
+            "notify::max-size-value",
+            sync_unit_from_config,
+        )
+    except Exception as exc:
+        _log(
+            "WARNING",
+            f"Could not connect maximum-size reset synchronization: "
+            f"{type(exc).__name__}: {exc}",
+        )
 
     update_sensitivity()
 
