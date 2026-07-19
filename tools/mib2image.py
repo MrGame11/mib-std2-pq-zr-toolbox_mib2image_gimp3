@@ -4,7 +4,7 @@
 # mib2image_gimp3
 # MIB2STD boot image loader/exporter for GIMP 3.x
 #
-# Version: 1.1.0
+# Version: 1.1.1
 #
 # Copyright (C) 2003, 2005 Manish Singh <yosh@gimp.org>
 # Copyright (C) 2021 John Tomatos
@@ -51,7 +51,7 @@ mib2image_gimp3
 
 MIB2STD boot image loader and exporter for GIMP 3.x.
 
-Version: 1.1.0
+Version: 1.1.1
 Author / GIMP 3.x port: MrGame11 (2026)
 Project: https://github.com/MrGame11/mib-std2-pq-zr-toolbox_mib2image_gimp3
 License: GNU GPL v3 or later (GPL-3.0-or-later)
@@ -82,17 +82,19 @@ project or endorsed by The GIMP Development Team.
 """
 
 
-__version__ = "1.1.0"
+__version__ = "1.1.1"
 __author__ = "MrGame11"
 __license__ = "GPL-3.0-or-later"
 __url__ = "https://github.com/MrGame11/mib-std2-pq-zr-toolbox_mib2image_gimp3"
 
 import math
 import os
+import re
 import struct
 import sys
 import tempfile
 import zlib
+from datetime import datetime
 
 import gi
 gi.require_version("Gimp", "3.0")
@@ -104,10 +106,12 @@ from gi.repository import Gimp, Gio, GLib, GObject, Gegl
 LOAD_PROC = "file-mib2-load"
 EXPORT_PROC = "file-mib2-export"
 PLUGIN_BINARY = os.path.splitext(os.path.basename(__file__))[0]
-PLUGIN_VERSION = "1.1.0"
+PLUGIN_VERSION = "1.1.1"
 FORMAT_NAME = "MIB2STD BOOT Image"
 MIME_TYPE = "image/mib2"
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mib2image.log")
+LOG_BACKUP_FILE = LOG_FILE + ".old"
+LOG_MAX_BYTES = 1024 * 1024  # 1 MiB per log file
 
 LABEL_X = 160
 LABEL_Y = 320
@@ -144,9 +148,11 @@ TRANSLATIONS = {
         "export_dialog_title": "MIB2STD BOOT Image",
         "export_button": "Export",
         "export_explanation": (
-            "Color levels: 0 keeps the original color range. Lower values "
-            "reduce the number of color shades and may reduce file size, "
-            "but can create visible color banding.\n\n"
+            "Color levels: Limits each RGB channel to the selected number of "
+            "levels. For example, 8 levels allow up to 8³ = 512 RGB color "
+            "combinations before MIB2 conversion. 0 disables limiting. "
+            "Lower values may reduce file size, but can create visible "
+            "color banding.\n\n"
             "Label: For 800×480 images, this optionally extracts the "
             "480×100 area at X=160 / Y=320 into a separate *_lbl.mib file. "
             "The extracted area in the main MIB file is replaced with the "
@@ -207,9 +213,11 @@ TRANSLATIONS = {
         "export_dialog_title": "MIB2STD BOOT Image",
         "export_button": "Exportieren",
         "export_explanation": (
-            "Farbstufen: 0 behält den ursprünglichen Farbumfang. Niedrigere "
-            "Werte reduzieren die Anzahl der Farbabstufungen und können die "
-            "Dateigröße verringern, können aber sichtbare Farbstufen erzeugen.\n\n"
+            "Farbstufen: Begrenzt jeden RGB-Kanal auf die gewählte Anzahl von "
+            "Stufen. Beispiel: 8 Stufen erlauben vor der MIB2-Konvertierung "
+            "theoretisch bis zu 8³ = 512 RGB-Farbkombinationen. 0 deaktiviert "
+            "die Begrenzung. Niedrigere Werte können die Datei verkleinern, "
+            "aber sichtbare Farbstufen erzeugen.\n\n"
             "Label: Bei 800×480-Bildern wird optional der Bereich 480×100 "
             "Pixel ab X=160 / Y=320 als separate *_lbl.mib-Datei exportiert. "
             "Der extrahierte Bereich wird in der Haupt-MIB durch die "
@@ -299,15 +307,42 @@ def _clamp_u8(value):
     return max(0, min(255, int(value)))
 
 
+def _rotate_log_if_needed(incoming_bytes=0):
+    """
+    Keep mib2image.log at or below LOG_MAX_BYTES.
+
+    When the next entry would exceed 1 MiB, the current log is moved to
+    mib2image.log.old. Only one backup is retained.
+    """
+    try:
+        current_size = os.path.getsize(LOG_FILE) if os.path.exists(LOG_FILE) else 0
+        if current_size + incoming_bytes <= LOG_MAX_BYTES:
+            return
+
+        if os.path.exists(LOG_BACKUP_FILE):
+            os.remove(LOG_BACKUP_FILE)
+        if os.path.exists(LOG_FILE):
+            os.replace(LOG_FILE, LOG_BACKUP_FILE)
+    except Exception:
+        pass
+
+
 def _log(level, message):
-    """Write diagnostics to stderr and, when possible, mib2image.log."""
-    line = f"[mib2image {PLUGIN_VERSION}] {level}: {message}"
+    """Write diagnostics to stderr and, when possible, the rotating log."""
+    # Local system date/time including the current UTC offset.
+    timestamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %z")
+    line = (
+        f"[{timestamp}] "
+        f"[mib2image {PLUGIN_VERSION}] {level}: {message}"
+    )
     try:
         print(line, file=sys.stderr, flush=True)
     except Exception:
         pass
 
     try:
+        encoded_size = len((line + "\n").encode("utf-8"))
+        _rotate_log_if_needed(encoded_size)
         with open(LOG_FILE, "a", encoding="utf-8") as handle:
             handle.write(line + "\n")
     except Exception:
@@ -775,39 +810,234 @@ def _create_rgb_image(width, height, rgb_pixels):
         return _load_rgb_via_temp_png(width, height, rgb_pixels)
 
 
-def _export_image_to_rgb_via_temp_png(image):
+def _gimp_version_tuple():
+    """Return the host GIMP version as a comparable integer tuple."""
+    try:
+        version_text = Gimp.version()
+        numbers = re.findall(r"\d+", version_text)
+        values = tuple(int(value) for value in numbers[:3])
+        return values + (0,) * (3 - len(values))
+    except Exception as exc:
+        _log("WARNING", f"Could not determine GIMP version: {exc}")
+        return None
+
+
+def _prepare_export_image(image):
+    """Duplicate, convert to RGB if needed, and flatten for export."""
+    _log("INFO", "Export step: duplicating source image.")
     work_image = image.duplicate()
     if work_image is None:
         raise Mib2Error("Das Bild konnte nicht dupliziert werden.")
 
+    try:
+        if work_image.get_base_type() != Gimp.ImageBaseType.RGB:
+            _log("INFO", "Export step: converting duplicated image to RGB.")
+            result = work_image.convert_rgb()
+            if result is False:
+                raise Mib2Error(
+                    "Das duplizierte Bild konnte nicht nach RGB konvertiert werden."
+                )
+        else:
+            _log("INFO", "Export step: duplicated image is already RGB.")
+
+        _log("INFO", "Export step: flattening duplicated image.")
+        layer = work_image.flatten()
+        if layer is None:
+            raise Mib2Error("Das duplizierte Bild konnte nicht reduziert werden.")
+
+        return work_image, layer
+    except Exception:
+        try:
+            work_image.delete()
+        except Exception:
+            pass
+        raise
+
+
+def _apply_modern_gimp_posterize(drawable, levels):
+    """Apply GIMP 3.2+'s preferred gimp:posterize filter."""
+    _log(
+        "INFO",
+        f"Posterize: trying GIMP filter 'gimp:posterize' with {levels} levels.",
+    )
+    effect = Gimp.DrawableFilter.new(drawable, "gimp:posterize", "MIB2 Posterize")
+    if effect is None:
+        raise RuntimeError("Gimp.DrawableFilter.new() returned None.")
+
+    config = effect.get_config()
+    if config is None:
+        raise RuntimeError("Could not obtain configuration for gimp:posterize.")
+
+    config.set_property("levels", levels)
+    effect.update()
+    drawable.merge_filter(effect)
+    drawable.update(0, 0, drawable.get_width(), drawable.get_height())
+
+    _log(
+        "INFO",
+        f"Posterize method used: GIMP filter 'gimp:posterize' ({levels} levels).",
+    )
+
+
+def _apply_legacy_gimp_posterize(drawable, levels):
+    """Apply native Drawable.posterize(), intended for GIMP 3.0/3.1."""
+    _log(
+        "INFO",
+        f"Posterize: trying GIMP Drawable.posterize() with {levels} levels.",
+    )
+    result = drawable.posterize(levels)
+    if result is False:
+        raise RuntimeError("Drawable.posterize() returned False.")
+
+    drawable.update(0, 0, drawable.get_width(), drawable.get_height())
+    _log(
+        "INFO",
+        f"Posterize method used: GIMP Drawable.posterize() ({levels} levels).",
+    )
+
+
+def _save_work_image_to_rgb(work_image):
+    """Exchange the prepared temporary GIMP image as ordinary RGB PNG."""
     fd, temp_path = tempfile.mkstemp(prefix="mib2image-export-", suffix=".png")
     os.close(fd)
 
     try:
-        if work_image.get_base_type() != Gimp.ImageBaseType.RGB:
-            work_image.convert_rgb()
-
-        work_image.flatten()
-
+        _log("INFO", f"Export step: writing temporary RGB PNG: {temp_path}")
         temp_file = Gio.File.new_for_path(temp_path)
         if not Gimp.file_save(
             Gimp.RunMode.NONINTERACTIVE, work_image, temp_file, None
         ):
             raise Mib2Error("GIMP konnte das temporäre RGB-PNG nicht exportieren.")
 
+        _log("INFO", "Export step: reading temporary RGB PNG back into raw pixels.")
         width, height, color_type, pixels = read_png(temp_path)
-        return width, height, png_pixels_to_rgb(
-            width, height, color_type, pixels
+        rgb_pixels = png_pixels_to_rgb(width, height, color_type, pixels)
+        _log(
+            "INFO",
+            f"Export step: obtained RGB pixels ({width}x{height}, "
+            f"PNG color type {color_type}).",
         )
+        return width, height, rgb_pixels
+    finally:
+        try:
+            os.unlink(temp_path)
+            _log("INFO", "Export step: temporary RGB PNG removed.")
+        except OSError:
+            pass
+
+
+def _export_image_to_rgb_via_temp_png(image, limit_colors):
+    """
+    Prepare RGB pixels for MIB2 export.
+
+    GIMP 3.2+:
+      gimp:posterize -> Drawable.posterize() -> internal Python fallback
+
+    GIMP 3.0/3.1:
+      Drawable.posterize() -> gimp:posterize -> internal Python fallback
+    """
+    requested_levels = int(limit_colors)
+
+    if requested_levels <= 0:
+        _log("INFO", "Posterize: disabled (color levels = 0).")
+        work_image, _layer = _prepare_export_image(image)
+        try:
+            width, height, rgb_pixels = _save_work_image_to_rgb(work_image)
+            return width, height, rgb_pixels, "disabled"
+        finally:
+            try:
+                work_image.delete()
+            except Exception:
+                pass
+
+    effective_levels = max(2, min(256, requested_levels))
+    if effective_levels != requested_levels:
+        _log(
+            "WARNING",
+            f"Posterize: requested value {requested_levels} normalized "
+            f"to {effective_levels}.",
+        )
+
+    if effective_levels >= 256:
+        _log(
+            "INFO",
+            "Posterize: 256 levels selected; no reduction is necessary "
+            "for 8-bit RGB.",
+        )
+        work_image, _layer = _prepare_export_image(image)
+        try:
+            width, height, rgb_pixels = _save_work_image_to_rgb(work_image)
+            return width, height, rgb_pixels, "no-op (256 levels)"
+        finally:
+            try:
+                work_image.delete()
+            except Exception:
+                pass
+
+    host_version = _gimp_version_tuple()
+    try:
+        host_version_text = Gimp.version()
+    except Exception:
+        host_version_text = "unknown"
+
+    _log(
+        "INFO",
+        f"Posterize: host GIMP version={host_version_text}, "
+        f"requested={requested_levels}, effective={effective_levels}.",
+    )
+
+    if host_version is not None and host_version < (3, 2, 0):
+        methods = [
+            ("GIMP Drawable.posterize()", _apply_legacy_gimp_posterize),
+            ("GIMP filter gimp:posterize", _apply_modern_gimp_posterize),
+        ]
+    else:
+        methods = [
+            ("GIMP filter gimp:posterize", _apply_modern_gimp_posterize),
+            ("GIMP Drawable.posterize()", _apply_legacy_gimp_posterize),
+        ]
+
+    for method_name, method in methods:
+        work_image = None
+        try:
+            work_image, layer = _prepare_export_image(image)
+            method(layer, effective_levels)
+            width, height, rgb_pixels = _save_work_image_to_rgb(work_image)
+            return width, height, rgb_pixels, method_name
+        except Exception as exc:
+            _log(
+                "WARNING",
+                f"Posterize native method failed: {method_name}: "
+                f"{type(exc).__name__}: {exc}",
+            )
+        finally:
+            if work_image is not None:
+                try:
+                    work_image.delete()
+                except Exception:
+                    pass
+
+    _log(
+        "WARNING",
+        "Posterize: all native GIMP methods failed; "
+        "using internal Python fallback.",
+    )
+    work_image, _layer = _prepare_export_image(image)
+    try:
+        width, height, rgb_pixels = _save_work_image_to_rgb(work_image)
     finally:
         try:
             work_image.delete()
         except Exception:
             pass
-        try:
-            os.unlink(temp_path)
-        except OSError:
-            pass
+
+    rgb_pixels = posterize_rgb(rgb_pixels, effective_levels)
+    _log(
+        "INFO",
+        f"Posterize method used: internal Python fallback "
+        f"({effective_levels} levels).",
+    )
+    return width, height, rgb_pixels, "internal Python fallback"
 
 
 def load_mib2_run(
@@ -824,13 +1054,21 @@ def load_mib2_run(
         if not path:
             raise Mib2Error(_t("remote_not_supported"))
 
+        _log("INFO", f"Load requested: source={path}")
         Gimp.progress_init(_t("opening", name=file.get_basename()))
         width, height, color_type, pixels = read_png(path)
+        _log(
+            "INFO",
+            f"Load step: PNG/MIB2 container parsed "
+            f"({width}x{height}, color type {color_type}).",
+        )
 
         if color_type != 4:
             raise Mib2Error(_t("mib_requires_graya"))
 
+        _log("INFO", "Load step: decoding MIB2 pixel data to RGB.")
         rgb_pixels = decode_mib2_to_rgb(width, height, pixels)
+        _log("INFO", "Load step: creating GIMP RGB image.")
         image = _create_rgb_image(width, height, rgb_pixels)
 
         _log(
@@ -884,12 +1122,57 @@ def _show_export_dialog(procedure, config):
         # presentation helpers.
         pass
 
-    # fill_list() is the language-binding friendly variant of fill().
-    dialog.fill_list([
+    dialog_items = [
         "mib2-export-explanation",
         "lim-colors",
         "extract-label",
-    ])
+    ]
+
+    # GIMP/PyGObject builds differ in the exposed binding name.
+    # GIMP 3.0 commonly exposes fill(list), while other builds may expose
+    # fill_list(list). Try both.
+    filled = False
+    fill_error = None
+
+    if hasattr(dialog, "fill"):
+        try:
+            dialog.fill(dialog_items)
+            _log(
+                "INFO",
+                "Export dialog: populated using ProcedureDialog.fill(list).",
+            )
+            filled = True
+        except Exception as exc:
+            fill_error = exc
+            _log(
+                "WARNING",
+                f"Export dialog fill(list) failed: "
+                f"{type(exc).__name__}: {exc}",
+            )
+
+    if not filled and hasattr(dialog, "fill_list"):
+        try:
+            dialog.fill_list(dialog_items)
+            _log(
+                "INFO",
+                "Export dialog: populated using ProcedureDialog.fill_list(list).",
+            )
+            filled = True
+        except Exception as exc:
+            fill_error = exc
+            _log(
+                "WARNING",
+                f"Export dialog fill_list(list) failed: "
+                f"{type(exc).__name__}: {exc}",
+            )
+
+    if not filled:
+        raise RuntimeError(
+            "Could not populate GIMP export dialog with available "
+            "ProcedureDialog API"
+            + (f": {fill_error}" if fill_error else ".")
+        )
+
     dialog.set_ok_label(_t("export_button"))
 
     accepted = dialog.run()
@@ -909,10 +1192,13 @@ def export_mib2_run(
 ):
     try:
         if run_mode == Gimp.RunMode.INTERACTIVE:
+            _log("INFO", "Export step: opening interactive export options dialog.")
             if not _show_export_dialog(procedure, config):
+                _log("INFO", "Export cancelled by user in options dialog.")
                 return procedure.new_return_values(
                     Gimp.PDBStatusType.CANCEL, None
                 )
+            _log("INFO", "Export step: export options dialog accepted.")
 
         path = file.get_path()
         if not path:
@@ -921,29 +1207,72 @@ def export_mib2_run(
         limit_colors = int(config.get_property("lim-colors"))
         extract_label = bool(config.get_property("extract-label"))
 
-        width, height, rgb_pixels = _export_image_to_rgb_via_temp_png(image)
+        _log(
+            "INFO",
+            f"Export requested: target={path}, color_levels={limit_colors}, "
+            f"extract_label={extract_label}.",
+        )
+
+        width, height, rgb_pixels, posterize_method = (
+            _export_image_to_rgb_via_temp_png(image, limit_colors)
+        )
+
+        _log(
+            "INFO",
+            f"Export step: RGB preparation completed; "
+            f"posterize_method={posterize_method}.",
+        )
 
         if width % 2 != 0:
             raise Mib2Error(_t("width_even"))
 
-        if limit_colors > 0:
-            rgb_pixels = posterize_rgb(rgb_pixels, limit_colors)
-
+        _log(
+            "INFO",
+            f"Export step: encoding RGB pixels to MIB2 ({width}x{height}).",
+        )
         mib_pixels, label_pixels = encode_rgb_to_mib2(
             width, height, rgb_pixels, extract_label
         )
 
+        _log("INFO", f"Export step: writing main MIB2 file: {path}")
         write_png(path, width, height, 4, mib_pixels)
 
         if label_pixels is not None:
             root, extension = os.path.splitext(path)
             label_path = root + "_lbl" + extension
+            _log(
+                "INFO",
+                f"Export step: writing extracted label file: {label_path}",
+            )
             write_png(
                 label_path,
                 LABEL_WIDTH,
                 LABEL_HEIGHT,
                 4,
                 label_pixels,
+            )
+        elif extract_label:
+            _log(
+                "INFO",
+                "Export step: label extraction requested but skipped because "
+                "the image is not exactly 800x480.",
+            )
+        else:
+            _log("INFO", "Export step: label extraction disabled.")
+
+        try:
+            main_size = os.path.getsize(path)
+            _log(
+                "INFO",
+                f"Export completed successfully: target={path}, "
+                f"size={main_size} bytes, "
+                f"posterize_method={posterize_method}.",
+            )
+        except OSError:
+            _log(
+                "INFO",
+                f"Export completed successfully: target={path}, "
+                f"posterize_method={posterize_method}.",
             )
 
         return procedure.new_return_values(
@@ -1036,5 +1365,5 @@ class Mib2ImagePlugin(Gimp.PlugIn):
         return None
 
 
-_log("INFO", f"Starting plug-in binary={PLUGIN_BINARY}, language={LANGUAGE}")
+_log("INFO", f"Starting plug-in binary={PLUGIN_BINARY}, language={LANGUAGE}, gimp_version={Gimp.version()}, log_max_bytes={LOG_MAX_BYTES}")
 Gimp.main(Mib2ImagePlugin.__gtype__, sys.argv)
