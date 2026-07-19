@@ -4,7 +4,7 @@
 # mib2image_gimp3
 # MIB2STD boot image loader/exporter for GIMP 3.x
 #
-# Version: 1.1.1
+# Version: 1.1.3
 #
 # Copyright (C) 2003, 2005 Manish Singh <yosh@gimp.org>
 # Copyright (C) 2021 John Tomatos
@@ -51,7 +51,7 @@ mib2image_gimp3
 
 MIB2STD boot image loader and exporter for GIMP 3.x.
 
-Version: 1.1.1
+Version: 1.1.3
 Author / GIMP 3.x port: MrGame11 (2026)
 Project: https://github.com/MrGame11/mib-std2-pq-zr-toolbox_mib2image_gimp3
 License: GNU GPL v3 or later (GPL-3.0-or-later)
@@ -82,7 +82,7 @@ project or endorsed by The GIMP Development Team.
 """
 
 
-__version__ = "1.1.1"
+__version__ = "1.1.3"
 __author__ = "MrGame11"
 __license__ = "GPL-3.0-or-later"
 __url__ = "https://github.com/MrGame11/mib-std2-pq-zr-toolbox_mib2image_gimp3"
@@ -106,12 +106,12 @@ from gi.repository import Gimp, Gio, GLib, GObject, Gegl
 LOAD_PROC = "file-mib2-load"
 EXPORT_PROC = "file-mib2-export"
 PLUGIN_BINARY = os.path.splitext(os.path.basename(__file__))[0]
-PLUGIN_VERSION = "1.1.1"
+PLUGIN_VERSION = "1.1.3"
 FORMAT_NAME = "MIB2STD BOOT Image"
 MIME_TYPE = "image/mib2"
-LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mib2image.log")
+LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mib2image_gimp3.log")
 LOG_BACKUP_FILE = LOG_FILE + ".old"
-LOG_MAX_BYTES = 1024 * 1024  # 1 MiB per log file
+LOG_MAX_BYTES = 128 * 1024  # 128 KiB per log file
 
 LABEL_X = 160
 LABEL_Y = 320
@@ -147,6 +147,15 @@ TRANSLATIONS = {
         ),
         "export_dialog_title": "MIB2STD BOOT Image",
         "export_button": "Export",
+        "help_button": "Help",
+        "help_dialog_title": "MIB2 Export Help",
+        "label_notice_title": "Label extraction not available",
+        "label_notice_text": (
+            "Label extraction was selected, but this image is {width}×{height}. "
+            "A label is only extracted from images that are exactly 800×480 pixels. "
+            "The main MIB file will still be exported normally without a separate "
+            "*_lbl.mib file."
+        ),
         "export_explanation": (
             "Color levels: Limits each RGB channel to the selected number of "
             "levels. For example, 8 levels allow up to 8³ = 512 RGB color "
@@ -156,7 +165,9 @@ TRANSLATIONS = {
             "Label: For 800×480 images, this optionally extracts the "
             "480×100 area at X=160 / Y=320 into a separate *_lbl.mib file. "
             "The extracted area in the main MIB file is replaced with the "
-            "format's placeholder values."
+            "format's placeholder values.\n\n"
+            "Image width: The image width must always be an even number of pixels. "
+            "Images with an odd width cannot be exported to the MIB2 format."
         ),
         "remote_not_supported": "Remote files are not supported by this plug-in.",
         "width_even": "Invalid resolution: The image width must be even.",
@@ -212,6 +223,15 @@ TRANSLATIONS = {
         ),
         "export_dialog_title": "MIB2STD BOOT Image",
         "export_button": "Exportieren",
+        "help_button": "Hilfe",
+        "help_dialog_title": "Hilfe zum MIB2-Export",
+        "label_notice_title": "Label-Extraktion nicht möglich",
+        "label_notice_text": (
+            "Die Label-Extraktion ist aktiviert, aber dieses Bild ist {width}×{height} Pixel groß. "
+            "Ein Label wird nur bei Bildern mit exakt 800×480 Pixeln extrahiert. "
+            "Die Haupt-MIB-Datei wird trotzdem normal exportiert, jedoch ohne separate "
+            "*_lbl.mib-Datei."
+        ),
         "export_explanation": (
             "Farbstufen: Begrenzt jeden RGB-Kanal auf die gewählte Anzahl von "
             "Stufen. Beispiel: 8 Stufen erlauben vor der MIB2-Konvertierung "
@@ -221,7 +241,10 @@ TRANSLATIONS = {
             "Label: Bei 800×480-Bildern wird optional der Bereich 480×100 "
             "Pixel ab X=160 / Y=320 als separate *_lbl.mib-Datei exportiert. "
             "Der extrahierte Bereich wird in der Haupt-MIB durch die "
-            "Platzhalterwerte des Formats ersetzt."
+            "Platzhalterwerte des Formats ersetzt.\n\n"
+            "Bildbreite: Die Breite des Bildes muss immer eine gerade Anzahl von "
+            "Pixeln haben. Bilder mit ungerader Breite können nicht in das "
+            "MIB2-Format exportiert werden."
         ),
         "remote_not_supported": (
             "Remote-Dateien werden von diesem Plugin nicht unterstützt."
@@ -1095,42 +1118,120 @@ def load_mib2_run(
         )
 
 
+
+def _find_spin_button(widget):
+    """Recursively find a Gtk.SpinButton inside a composite GIMP UI widget."""
+    try:
+        gi.require_version("Gtk", "3.0")
+        from gi.repository import Gtk
+    except Exception:
+        return None
+
+    if isinstance(widget, Gtk.SpinButton):
+        return widget
+
+    try:
+        if isinstance(widget, Gtk.Container):
+            for child in widget.get_children():
+                found = _find_spin_button(child)
+                if found is not None:
+                    return found
+    except Exception:
+        pass
+
+    return None
+
+
+def _configure_color_levels_widget(dialog, config):
+    """
+    Keep the user-facing color-level value in the valid set:
+      0      = disabled
+      2..256 = posterize levels
+
+    The value 1 is skipped in the UI:
+      0 -> 2 when increasing
+      2 -> 0 when decreasing
+    """
+    try:
+        widget = dialog.get_widget("lim-colors", GObject.TYPE_NONE)
+    except Exception as exc:
+        _log(
+            "WARNING",
+            f"Color levels UI: could not get property widget: "
+            f"{type(exc).__name__}: {exc}",
+        )
+        return
+
+    spin = _find_spin_button(widget)
+    if spin is None:
+        _log(
+            "WARNING",
+            "Color levels UI: no Gtk.SpinButton found; backend validation remains active.",
+        )
+        return
+
+    state = {
+        "previous_valid": int(config.get_property("lim-colors")),
+        "adjusting": False,
+    }
+
+    def on_value_changed(spin_button):
+        if state["adjusting"]:
+            return
+
+        value = int(round(spin_button.get_value()))
+
+        if value == 1:
+            previous = state["previous_valid"]
+
+            # Beim Herunterzählen 2 -> 1 soll 0 erreicht werden.
+            # In allen anderen Fällen wird 1 auf 2 angehoben.
+            replacement = 0 if previous == 2 else 2
+
+            state["adjusting"] = True
+            try:
+                spin_button.set_value(replacement)
+                try:
+                    config.set_property("lim-colors", replacement)
+                except Exception:
+                    pass
+
+                _log(
+                    "INFO",
+                    f"Color levels UI: invalid value 1 skipped; normalized to {replacement}.",
+                )
+            finally:
+                state["adjusting"] = False
+
+            state["previous_valid"] = replacement
+            return
+
+        if value == 0 or 2 <= value <= 256:
+            state["previous_valid"] = value
+
+    spin.connect("value-changed", on_value_changed)
+    _log(
+        "INFO",
+        "Color levels UI: valid values are 0 or 2-256; value 1 is skipped.",
+    )
+
+
 def _show_export_dialog(procedure, config):
     gi.require_version("GimpUi", "3.0")
-    from gi.repository import GimpUi
+    gi.require_version("Gtk", "3.0")
+    from gi.repository import GimpUi, Gtk
 
     GimpUi.init(PLUGIN_BINARY)
     dialog = GimpUi.ProcedureDialog.new(
         procedure, config, _t("export_dialog_title")
     )
 
-    # GimpProcedureDialog explicitly supports additional labels which can be
-    # packed together with procedure properties. This keeps the explanation
-    # in the same export dialog without changing the export configuration.
-    info_label = dialog.get_label(
-        "mib2-export-explanation",
-        _t("export_explanation"),
-        False,
-        False,
-    )
-    try:
-        info_label.set_line_wrap(True)
-        info_label.set_xalign(0.0)
-        info_label.set_max_width_chars(72)
-    except Exception:
-        # The label is still usable if a GTK binding lacks one of these
-        # presentation helpers.
-        pass
-
     dialog_items = [
-        "mib2-export-explanation",
         "lim-colors",
         "extract-label",
     ]
 
     # GIMP/PyGObject builds differ in the exposed binding name.
-    # GIMP 3.0 commonly exposes fill(list), while other builds may expose
-    # fill_list(list). Try both.
     filled = False
     fill_error = None
 
@@ -1173,11 +1274,103 @@ def _show_export_dialog(procedure, config):
             + (f": {fill_error}" if fill_error else ".")
         )
 
+    _configure_color_levels_widget(dialog, config)
+
     dialog.set_ok_label(_t("export_button"))
 
-    accepted = dialog.run()
+    def show_help(_button):
+        """
+        Open help without emitting a GtkDialog response.
+
+        ProcedureDialog.run() returns a boolean validation result, not a
+        Gtk.ResponseType. Therefore the Help button must be a normal button
+        in the action area rather than a response button.
+        """
+        _log("INFO", "Export dialog: Help opened.")
+        help_dialog = Gtk.MessageDialog(
+            transient_for=dialog,
+            flags=Gtk.DialogFlags.MODAL,
+            message_type=Gtk.MessageType.INFO,
+            buttons=Gtk.ButtonsType.OK,
+            text=_t("help_dialog_title"),
+        )
+        help_dialog.format_secondary_text(_t("export_explanation"))
+        help_dialog.run()
+        help_dialog.destroy()
+        _log("INFO", "Export dialog: Help closed; returning to export options.")
+
+    # Add a normal, non-response Help button. Unlike dialog.add_button(),
+    # this does not emit GtkDialog::response and therefore does not cause
+    # ProcedureDialog.run() to finish/cancel.
+    try:
+        help_button = Gtk.Button.new_with_label(_t("help_button"))
+        help_button.connect("clicked", show_help)
+
+        action_area = dialog.get_action_area()
+        action_area.pack_start(help_button, False, False, 0)
+        help_button.show()
+
+        _log(
+            "INFO",
+            "Export dialog: non-response Help button added to action area.",
+        )
+    except Exception as exc:
+        _log(
+            "WARNING",
+            f"Export dialog: could not add non-response Help button: "
+            f"{type(exc).__name__}: {exc}",
+        )
+
+    # Important: GimpUi.ProcedureDialog.run() returns gboolean:
+    # True = validated/export, False = cancelled.
+    accepted = bool(dialog.run())
+
+    if accepted:
+        _log("INFO", "Export dialog: validated by user.")
+    else:
+        _log("INFO", "Export dialog: cancelled by user.")
+
     dialog.destroy()
     return accepted
+
+
+
+def _show_label_extraction_notice(image):
+    """
+    Inform the user that label extraction will be skipped for non-800x480 images.
+
+    This notice is shown only for interactive exports after the user confirms
+    the export options. The main MIB export continues normally.
+    """
+    gi.require_version("Gtk", "3.0")
+    from gi.repository import Gtk
+
+    try:
+        width = image.get_width()
+        height = image.get_height()
+    except Exception:
+        # Fallback for bindings that expose dimensions as properties.
+        width = getattr(image, "width", 0)
+        height = getattr(image, "height", 0)
+
+    notice = Gtk.MessageDialog(
+        transient_for=None,
+        flags=Gtk.DialogFlags.MODAL,
+        message_type=Gtk.MessageType.INFO,
+        buttons=Gtk.ButtonsType.OK,
+        text=_t("label_notice_title"),
+    )
+    notice.format_secondary_text(
+        _t("label_notice_text", width=width, height=height)
+    )
+    notice.run()
+    notice.destroy()
+
+    _log(
+        "INFO",
+        f"Label extraction notice shown: image={width}x{height}; "
+        "label extraction will be skipped.",
+    )
 
 
 def export_mib2_run(
@@ -1194,7 +1387,7 @@ def export_mib2_run(
         if run_mode == Gimp.RunMode.INTERACTIVE:
             _log("INFO", "Export step: opening interactive export options dialog.")
             if not _show_export_dialog(procedure, config):
-                _log("INFO", "Export cancelled by user in options dialog.")
+                _log("INFO", "Export cancelled after options dialog returned False.")
                 return procedure.new_return_values(
                     Gimp.PDBStatusType.CANCEL, None
                 )
@@ -1206,6 +1399,32 @@ def export_mib2_run(
 
         limit_colors = int(config.get_property("lim-colors"))
         extract_label = bool(config.get_property("extract-label"))
+
+        # Safety net: value 1 is not a valid posterize level.
+        # Normalize it to the smallest active value, 2.
+        if limit_colors == 1:
+            _log(
+                "WARNING",
+                "Color levels: invalid value 1 received; normalized to 2.",
+            )
+            limit_colors = 2
+            try:
+                config.set_property("lim-colors", 2)
+            except Exception:
+                pass
+
+        # Inform interactive users immediately after confirming the export
+        # options if label extraction cannot be performed for this image size.
+        if run_mode == Gimp.RunMode.INTERACTIVE and extract_label:
+            try:
+                current_width = image.get_width()
+                current_height = image.get_height()
+            except Exception:
+                current_width = getattr(image, "width", 0)
+                current_height = getattr(image, "height", 0)
+
+            if current_width != 800 or current_height != 480:
+                _show_label_extraction_notice(image)
 
         _log(
             "INFO",
@@ -1255,7 +1474,8 @@ def export_mib2_run(
             _log(
                 "INFO",
                 "Export step: label extraction requested but skipped because "
-                "the image is not exactly 800x480.",
+                "the image is not exactly 800x480. User was informed during "
+                "interactive export when applicable.",
             )
         else:
             _log("INFO", "Export step: label extraction disabled.")
@@ -1365,5 +1585,5 @@ class Mib2ImagePlugin(Gimp.PlugIn):
         return None
 
 
-_log("INFO", f"Starting plug-in binary={PLUGIN_BINARY}, language={LANGUAGE}, gimp_version={Gimp.version()}, log_max_bytes={LOG_MAX_BYTES}")
+_log("INFO", f"Starting plug-in binary={PLUGIN_BINARY}, language={LANGUAGE}, gimp_version={Gimp.version() or "unknown"}, log_max_bytes={LOG_MAX_BYTES}")
 Gimp.main(Mib2ImagePlugin.__gtype__, sys.argv)
