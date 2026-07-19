@@ -4,7 +4,7 @@
 # mib2image_gimp3
 # MIB2STD boot image loader/exporter for GIMP 3.x
 #
-# Version: 1.1.3
+# Version: 1.2.0
 #
 # Copyright (C) 2003, 2005 Manish Singh <yosh@gimp.org>
 # Copyright (C) 2021 John Tomatos
@@ -51,7 +51,7 @@ mib2image_gimp3
 
 MIB2STD boot image loader and exporter for GIMP 3.x.
 
-Version: 1.1.3
+Version: 1.2.0
 Author / GIMP 3.x port: MrGame11 (2026)
 Project: https://github.com/MrGame11/mib-std2-pq-zr-toolbox_mib2image_gimp3
 License: GNU GPL v3 or later (GPL-3.0-or-later)
@@ -82,7 +82,7 @@ project or endorsed by The GIMP Development Team.
 """
 
 
-__version__ = "1.1.3"
+__version__ = "1.2.0"
 __author__ = "MrGame11"
 __license__ = "GPL-3.0-or-later"
 __url__ = "https://github.com/MrGame11/mib-std2-pq-zr-toolbox_mib2image_gimp3"
@@ -106,10 +106,10 @@ from gi.repository import Gimp, Gio, GLib, GObject, Gegl
 LOAD_PROC = "file-mib2-load"
 EXPORT_PROC = "file-mib2-export"
 PLUGIN_BINARY = os.path.splitext(os.path.basename(__file__))[0]
-PLUGIN_VERSION = "1.1.3"
+PLUGIN_VERSION = "1.2.0"
 FORMAT_NAME = "MIB2STD BOOT Image"
 MIME_TYPE = "image/mib2"
-LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mib2image_gimp3.log")
+LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mib2image.log")
 LOG_BACKUP_FILE = LOG_FILE + ".old"
 LOG_MAX_BYTES = 128 * 1024  # 128 KiB per log file
 
@@ -150,6 +150,45 @@ TRANSLATIONS = {
         "help_button": "Help",
         "help_dialog_title": "MIB2 Export Help",
         "label_notice_title": "Label extraction not available",
+        "auto_size_label": "Automatically optimize for maximum file size",
+        "auto_size_help": (
+            "Automatically choose the highest usable color-level setting "
+            "that keeps the exported file size at or below the selected limit."
+        ),
+        "max_size_kib_label": "Maximum size (KiB)",
+        "max_size_kib_help": "Target size limit used by the automatic optimizer.",
+        "verify_export_label": "Verify exported file after saving",
+        "verify_export_help": (
+            "Read the exported MIB file again after saving and verify that "
+            "its PNG container and MIB2 payload are still valid."
+        ),
+        "estimate_button": "Estimate size",
+        "estimate_title": "Estimated export size",
+        "label_preview_button": "Mark label area",
+        "label_preview_title": "Label area",
+        "label_preview_done": "The label area has been selected in the current image.",
+        "label_preview_unavailable": (
+            "The label area uses the rectangle X=160 / Y=320 / 480×100. "
+            "This preview is only useful when the image is large enough to contain that area. "
+            "Current image size: {width}×{height}."
+        ),
+        "verification_error_title": "Export verification failed",
+        "verification_error_text": (
+            "The file was written, but the optional integrity check reported an error:\n\n{error}"
+        ),
+        "estimate_text": (
+            "Image size: {width}×{height}\n"
+            "Auto optimize: {auto_optimize}\n"
+            "Requested color levels: {requested_levels}\n"
+            "Used color levels: {used_levels}\n"
+            "Posterize method: {posterize_method}\n"
+            "Label file: {label_status}\n"
+            "Main file: {main_size} bytes ({main_kib:.1f} KiB)\n"
+            "Label file: {label_size} bytes ({label_kib:.1f} KiB)\n"
+            "Total: {total_size} bytes ({total_kib:.1f} KiB)\n"
+            "Maximum size: {max_size} bytes ({max_kib:.1f} KiB)\n"
+            "Within limit: {within_limit}"
+        ),
         "label_notice_text": (
             "Label extraction was selected, but this image is {width}×{height}. "
             "A label is only extracted from images that are exactly 800×480 pixels. "
@@ -167,7 +206,10 @@ TRANSLATIONS = {
             "The extracted area in the main MIB file is replaced with the "
             "format's placeholder values.\n\n"
             "Image width: The image width must always be an even number of pixels. "
-            "Images with an odd width cannot be exported to the MIB2 format."
+            "Images with an odd width cannot be exported to the MIB2 format.\n\n"
+            "Additional tools: The export dialog can estimate the resulting file size, "
+            "mark the label area in GIMP, automatically optimize color levels for a maximum size, "
+            "and optionally verify the exported file after saving."
         ),
         "remote_not_supported": "Remote files are not supported by this plug-in.",
         "width_even": "Invalid resolution: The image width must be even.",
@@ -226,6 +268,45 @@ TRANSLATIONS = {
         "help_button": "Hilfe",
         "help_dialog_title": "Hilfe zum MIB2-Export",
         "label_notice_title": "Label-Extraktion nicht möglich",
+        "auto_size_label": "Automatisch auf maximale Dateigröße optimieren",
+        "auto_size_help": (
+            "Wählt automatisch die höchste sinnvolle Farbstufen-Einstellung, "
+            "die die exportierte Dateigröße innerhalb des gewählten Limits hält."
+        ),
+        "max_size_kib_label": "Maximale Größe (KiB)",
+        "max_size_kib_help": "Zielgröße für die automatische Optimierung.",
+        "verify_export_label": "Exportierte Datei nach dem Speichern überprüfen",
+        "verify_export_help": (
+            "Liest die exportierte MIB-Datei nach dem Speichern erneut ein und "
+            "prüft, ob PNG-Container und MIB2-Inhalt gültig sind."
+        ),
+        "estimate_button": "Größe schätzen",
+        "estimate_title": "Geschätzte Exportgröße",
+        "label_preview_button": "Label-Bereich markieren",
+        "label_preview_title": "Label-Bereich",
+        "label_preview_done": "Der Label-Bereich wurde im aktuellen Bild ausgewählt.",
+        "label_preview_unavailable": (
+            "Der Label-Bereich verwendet das Rechteck X=160 / Y=320 / 480×100. "
+            "Diese Vorschau ist nur sinnvoll, wenn das Bild groß genug ist, um diesen Bereich zu enthalten. "
+            "Aktuelle Bildgröße: {width}×{height}."
+        ),
+        "verification_error_title": "Export-Prüfung fehlgeschlagen",
+        "verification_error_text": (
+            "Die Datei wurde gespeichert, aber die optionale Integritätsprüfung hat einen Fehler gemeldet:\n\n{error}"
+        ),
+        "estimate_text": (
+            "Bildgröße: {width}×{height}\n"
+            "Automatische Optimierung: {auto_optimize}\n"
+            "Angeforderte Farbstufen: {requested_levels}\n"
+            "Verwendete Farbstufen: {used_levels}\n"
+            "Posterize-Methode: {posterize_method}\n"
+            "Label-Datei: {label_status}\n"
+            "Hauptdatei: {main_size} Bytes ({main_kib:.1f} KiB)\n"
+            "Label-Datei: {label_size} Bytes ({label_kib:.1f} KiB)\n"
+            "Gesamt: {total_size} Bytes ({total_kib:.1f} KiB)\n"
+            "Maximale Größe: {max_size} Bytes ({max_kib:.1f} KiB)\n"
+            "Innerhalb des Limits: {within_limit}"
+        ),
         "label_notice_text": (
             "Die Label-Extraktion ist aktiviert, aber dieses Bild ist {width}×{height} Pixel groß. "
             "Ein Label wird nur bei Bildern mit exakt 800×480 Pixeln extrahiert. "
@@ -244,7 +325,10 @@ TRANSLATIONS = {
             "Platzhalterwerte des Formats ersetzt.\n\n"
             "Bildbreite: Die Breite des Bildes muss immer eine gerade Anzahl von "
             "Pixeln haben. Bilder mit ungerader Breite können nicht in das "
-            "MIB2-Format exportiert werden."
+            "MIB2-Format exportiert werden.\n\n"
+            "Zusätzliche Werkzeuge: Der Exportdialog kann die resultierende Dateigröße schätzen, "
+            "den Label-Bereich in GIMP markieren, die Farbstufen automatisch auf eine maximale Größe "
+            "optimieren und die exportierte Datei nach dem Speichern optional überprüfen."
         ),
         "remote_not_supported": (
             "Remote-Dateien werden von diesem Plugin nicht unterstützt."
@@ -421,8 +505,8 @@ def _png_chunk(chunk_type, data):
     )
 
 
-def write_png(path, width, height, color_type, pixels):
-    """Write an 8-bit, non-interlaced PNG using filter type 0."""
+def build_png_bytes(width, height, color_type, pixels):
+    """Build an 8-bit, non-interlaced PNG using filter type 0."""
     channels = {0: 1, 2: 3, 4: 2, 6: 4}.get(color_type)
     if channels is None:
         raise Mib2Error(_t("unsupported_png_color"))
@@ -435,20 +519,23 @@ def write_png(path, width, height, color_type, pixels):
     stride = width * channels
     raw = bytearray()
     for y in range(height):
-        raw.append(0)  # PNG filter: None
+        raw.append(0)
         start = y * stride
         raw.extend(pixels[start:start + stride])
 
     ihdr = struct.pack(">IIBBBBB", width, height, 8, color_type, 0, 0, 0)
-    png = (
+    return (
         PNG_SIGNATURE
         + _png_chunk(b"IHDR", ihdr)
         + _png_chunk(b"IDAT", zlib.compress(bytes(raw), 9))
         + _png_chunk(b"IEND", b"")
     )
 
+
+def write_png(path, width, height, color_type, pixels):
+    """Write an 8-bit, non-interlaced PNG using filter type 0."""
     with open(path, "wb") as handle:
-        handle.write(png)
+        handle.write(build_png_bytes(width, height, color_type, pixels))
 
 
 def read_png(path):
@@ -1216,7 +1303,234 @@ def _configure_color_levels_widget(dialog, config):
     )
 
 
-def _show_export_dialog(procedure, config):
+
+AUTO_LEVEL_CANDIDATES = (256, 224, 192, 160, 128, 96, 64, 48, 32, 24, 16, 12, 8, 6, 4, 3, 2)
+
+
+def _get_image_size(image):
+    try:
+        return int(image.get_width()), int(image.get_height())
+    except Exception:
+        return int(getattr(image, "width", 0)), int(getattr(image, "height", 0))
+
+
+def _normalize_limit_colors(levels):
+    levels = int(levels)
+    if levels <= 0:
+        return 0
+    return max(2, min(256, levels))
+
+
+def _normalize_max_size_kib(value):
+    return max(1, int(value))
+
+
+def _show_info_dialog(parent, title, message):
+    gi.require_version("Gtk", "3.0")
+    from gi.repository import Gtk
+
+    dialog = Gtk.MessageDialog(
+        transient_for=parent,
+        flags=Gtk.DialogFlags.MODAL,
+        message_type=Gtk.MessageType.INFO,
+        buttons=Gtk.ButtonsType.OK,
+        text=title,
+    )
+    dialog.format_secondary_text(message)
+    dialog.run()
+    dialog.destroy()
+
+
+def _build_export_payload_for_levels(image, limit_colors, extract_label):
+    width, height, rgb_pixels, posterize_method = _export_image_to_rgb_via_temp_png(
+        image, limit_colors
+    )
+    mib_pixels, label_pixels = encode_rgb_to_mib2(
+        width, height, rgb_pixels, extract_label
+    )
+    main_png_bytes = build_png_bytes(width, height, 4, mib_pixels)
+    label_png_bytes = None
+    if label_pixels is not None:
+        label_png_bytes = build_png_bytes(
+            LABEL_WIDTH,
+            LABEL_HEIGHT,
+            4,
+            label_pixels,
+        )
+
+    return {
+        "width": width,
+        "height": height,
+        "requested_levels": limit_colors,
+        "used_levels": _normalize_limit_colors(limit_colors),
+        "posterize_method": posterize_method,
+        "mib_pixels": mib_pixels,
+        "label_pixels": label_pixels,
+        "main_png_bytes": main_png_bytes,
+        "label_png_bytes": label_png_bytes,
+        "main_size": len(main_png_bytes),
+        "label_size": len(label_png_bytes) if label_png_bytes is not None else 0,
+        "label_extracted": label_pixels is not None,
+    }
+
+
+def _build_export_plan(image, limit_colors, extract_label, auto_size, max_size_kib):
+    extract_label = bool(extract_label)
+    auto_size = bool(auto_size)
+    max_size_bytes = _normalize_max_size_kib(max_size_kib) * 1024
+
+    if auto_size:
+        best_plan = None
+        fallback_plan = None
+        for candidate in AUTO_LEVEL_CANDIDATES:
+            plan = _build_export_payload_for_levels(image, candidate, extract_label)
+            plan["requested_levels"] = limit_colors
+            plan["used_levels"] = candidate
+            plan["auto_optimize"] = True
+            plan["max_size_bytes"] = max_size_bytes
+            plan["total_size"] = plan["main_size"] + plan["label_size"]
+            fallback_plan = plan
+            if plan["total_size"] <= max_size_bytes:
+                best_plan = plan
+                break
+
+        if best_plan is None:
+            best_plan = fallback_plan
+            best_plan["size_limit_met"] = False
+        else:
+            best_plan["size_limit_met"] = True
+
+        return best_plan
+
+    plan = _build_export_payload_for_levels(image, limit_colors, extract_label)
+    plan["requested_levels"] = limit_colors
+    plan["used_levels"] = _normalize_limit_colors(limit_colors)
+    plan["auto_optimize"] = False
+    plan["max_size_bytes"] = max_size_bytes
+    plan["total_size"] = plan["main_size"] + plan["label_size"]
+    plan["size_limit_met"] = plan["total_size"] <= max_size_bytes
+    return plan
+
+
+def _show_export_estimate_dialog(parent, image, config):
+    try:
+        limit_colors = _normalize_limit_colors(config.get_property("lim-colors"))
+        extract_label = bool(config.get_property("extract-label"))
+        auto_size = bool(config.get_property("auto-size"))
+        max_size_kib = _normalize_max_size_kib(config.get_property("max-size-kib"))
+
+        _log(
+            "INFO",
+            f"Estimate requested: color_levels={limit_colors}, extract_label={extract_label}, "
+            f"auto_size={auto_size}, max_size_kib={max_size_kib}.",
+        )
+        plan = _build_export_plan(image, limit_colors, extract_label, auto_size, max_size_kib)
+        width, height = plan["width"], plan["height"]
+        message = _t(
+            "estimate_text",
+            width=width,
+            height=height,
+            auto_optimize=("yes" if plan["auto_optimize"] else "no") if LANGUAGE == "en" else ("ja" if plan["auto_optimize"] else "nein"),
+            requested_levels=plan["requested_levels"],
+            used_levels=plan["used_levels"],
+            posterize_method=plan["posterize_method"],
+            label_status=("yes" if plan["label_extracted"] else "no") if LANGUAGE == "en" else ("ja" if plan["label_extracted"] else "nein"),
+            main_size=plan["main_size"],
+            main_kib=plan["main_size"] / 1024.0,
+            label_size=plan["label_size"],
+            label_kib=plan["label_size"] / 1024.0,
+            total_size=plan["total_size"],
+            total_kib=plan["total_size"] / 1024.0,
+            max_size=plan["max_size_bytes"],
+            max_kib=plan["max_size_bytes"] / 1024.0,
+            within_limit=("yes" if plan["size_limit_met"] else "no") if LANGUAGE == "en" else ("ja" if plan["size_limit_met"] else "nein"),
+        )
+        _show_info_dialog(parent, _t("estimate_title"), message)
+        _log(
+            "INFO",
+            f"Estimate completed: total_size={plan['total_size']} bytes, "
+            f"main_size={plan['main_size']} bytes, label_size={plan['label_size']} bytes, "
+            f"used_levels={plan['used_levels']}, auto_size={plan['auto_optimize']}, "
+            f"within_limit={plan['size_limit_met']}.",
+        )
+    except Exception as exc:
+        _log("ERROR", f"Estimate failed: {type(exc).__name__}: {exc}")
+        _show_info_dialog(parent, _t("estimate_title"), str(exc))
+
+
+def _mark_label_area_dialog(parent, image):
+    width, height = _get_image_size(image)
+    if width < LABEL_X + LABEL_WIDTH or height < LABEL_Y + LABEL_HEIGHT:
+        _show_info_dialog(
+            parent,
+            _t("label_preview_title"),
+            _t("label_preview_unavailable", width=width, height=height),
+        )
+        _log(
+            "INFO",
+            f"Label preview unavailable for image size {width}x{height}.",
+        )
+        return
+
+    selection_applied = False
+    last_error = None
+    for args in (
+        (Gimp.ChannelOps.REPLACE, LABEL_X, LABEL_Y, LABEL_WIDTH, LABEL_HEIGHT),
+        (Gimp.ChannelOps.REPLACE, LABEL_X, LABEL_Y, LABEL_WIDTH, LABEL_HEIGHT, 0),
+    ):
+        try:
+            image.select_rectangle(*args)
+            selection_applied = True
+            break
+        except Exception as exc:
+            last_error = exc
+
+    if not selection_applied:
+        raise RuntimeError(
+            f"Could not mark the label area in GIMP: {last_error}"
+        )
+
+    try:
+        Gimp.displays_flush()
+    except Exception:
+        pass
+
+    _show_info_dialog(parent, _t("label_preview_title"), _t("label_preview_done"))
+    _log("INFO", "Label preview selection applied in GIMP.")
+
+
+def _verify_exported_file(path, expected_width, expected_height):
+    width, height, color_type, pixels = read_png(path)
+    if width != expected_width or height != expected_height:
+        raise Mib2Error(
+            f"Unexpected exported image size in {os.path.basename(path)}: "
+            f"expected {expected_width}x{expected_height}, got {width}x{height}."
+        )
+    if color_type != 4:
+        raise Mib2Error(
+            f"Unexpected PNG color type in {os.path.basename(path)}: expected 4, got {color_type}."
+        )
+    decode_mib2_to_rgb(width, height, pixels)
+
+
+def _verify_exported_output(main_path, width, height, label_path=None):
+    _log("INFO", f"Verification step: checking exported file {main_path}")
+    _verify_exported_file(main_path, width, height)
+    if label_path is not None:
+        _log("INFO", f"Verification step: checking exported label file {label_path}")
+        _verify_exported_file(label_path, LABEL_WIDTH, LABEL_HEIGHT)
+    _log("INFO", "Verification step: roundtrip/integrity check completed successfully.")
+
+
+def _show_verification_error_dialog(error_message):
+    _show_info_dialog(
+        None,
+        _t("verification_error_title"),
+        _t("verification_error_text", error=error_message),
+    )
+
+
+def _show_export_dialog(procedure, config, image):
     gi.require_version("GimpUi", "3.0")
     gi.require_version("Gtk", "3.0")
     from gi.repository import GimpUi, Gtk
@@ -1228,10 +1542,12 @@ def _show_export_dialog(procedure, config):
 
     dialog_items = [
         "lim-colors",
+        "auto-size",
+        "max-size-kib",
+        "verify-export",
         "extract-label",
     ]
 
-    # GIMP/PyGObject builds differ in the exposed binding name.
     filled = False
     fill_error = None
 
@@ -1247,8 +1563,7 @@ def _show_export_dialog(procedure, config):
             fill_error = exc
             _log(
                 "WARNING",
-                f"Export dialog fill(list) failed: "
-                f"{type(exc).__name__}: {exc}",
+                f"Export dialog fill(list) failed: {type(exc).__name__}: {exc}",
             )
 
     if not filled and hasattr(dialog, "fill_list"):
@@ -1263,66 +1578,61 @@ def _show_export_dialog(procedure, config):
             fill_error = exc
             _log(
                 "WARNING",
-                f"Export dialog fill_list(list) failed: "
-                f"{type(exc).__name__}: {exc}",
+                f"Export dialog fill_list(list) failed: {type(exc).__name__}: {exc}",
             )
 
     if not filled:
         raise RuntimeError(
-            "Could not populate GIMP export dialog with available "
-            "ProcedureDialog API"
+            "Could not populate GIMP export dialog with available ProcedureDialog API"
             + (f": {fill_error}" if fill_error else ".")
         )
 
     _configure_color_levels_widget(dialog, config)
-
     dialog.set_ok_label(_t("export_button"))
 
     def show_help(_button):
-        """
-        Open help without emitting a GtkDialog response.
-
-        ProcedureDialog.run() returns a boolean validation result, not a
-        Gtk.ResponseType. Therefore the Help button must be a normal button
-        in the action area rather than a response button.
-        """
         _log("INFO", "Export dialog: Help opened.")
-        help_dialog = Gtk.MessageDialog(
-            transient_for=dialog,
-            flags=Gtk.DialogFlags.MODAL,
-            message_type=Gtk.MessageType.INFO,
-            buttons=Gtk.ButtonsType.OK,
-            text=_t("help_dialog_title"),
-        )
-        help_dialog.format_secondary_text(_t("export_explanation"))
-        help_dialog.run()
-        help_dialog.destroy()
+        _show_info_dialog(dialog, _t("help_dialog_title"), _t("export_explanation"))
         _log("INFO", "Export dialog: Help closed; returning to export options.")
 
-    # Add a normal, non-response Help button. Unlike dialog.add_button(),
-    # this does not emit GtkDialog::response and therefore does not cause
-    # ProcedureDialog.run() to finish/cancel.
+    def show_estimate(_button):
+        _show_export_estimate_dialog(dialog, image, config)
+
+    def show_label_preview(_button):
+        try:
+            _mark_label_area_dialog(dialog, image)
+        except Exception as exc:
+            _log("ERROR", f"Label preview failed: {type(exc).__name__}: {exc}")
+            _show_info_dialog(dialog, _t("label_preview_title"), str(exc))
+
     try:
         help_button = Gtk.Button.new_with_label(_t("help_button"))
         help_button.connect("clicked", show_help)
 
+        estimate_button = Gtk.Button.new_with_label(_t("estimate_button"))
+        estimate_button.connect("clicked", show_estimate)
+
+        preview_button = Gtk.Button.new_with_label(_t("label_preview_button"))
+        preview_button.connect("clicked", show_label_preview)
+
         action_area = dialog.get_action_area()
         action_area.pack_start(help_button, False, False, 0)
+        action_area.pack_start(estimate_button, False, False, 0)
+        action_area.pack_start(preview_button, False, False, 0)
         help_button.show()
+        estimate_button.show()
+        preview_button.show()
 
         _log(
             "INFO",
-            "Export dialog: non-response Help button added to action area.",
+            "Export dialog: Help, Estimate size and Label preview buttons added.",
         )
     except Exception as exc:
         _log(
             "WARNING",
-            f"Export dialog: could not add non-response Help button: "
-            f"{type(exc).__name__}: {exc}",
+            f"Export dialog: could not add custom action buttons: {type(exc).__name__}: {exc}",
         )
 
-    # Important: GimpUi.ProcedureDialog.run() returns gboolean:
-    # True = validated/export, False = cancelled.
     accepted = bool(dialog.run())
 
     if accepted:
@@ -1332,7 +1642,6 @@ def _show_export_dialog(procedure, config):
 
     dialog.destroy()
     return accepted
-
 
 
 def _show_label_extraction_notice(image):
@@ -1386,7 +1695,7 @@ def export_mib2_run(
     try:
         if run_mode == Gimp.RunMode.INTERACTIVE:
             _log("INFO", "Export step: opening interactive export options dialog.")
-            if not _show_export_dialog(procedure, config):
+            if not _show_export_dialog(procedure, config, image):
                 _log("INFO", "Export cancelled after options dialog returned False.")
                 return procedure.new_return_values(
                     Gimp.PDBStatusType.CANCEL, None
@@ -1397,103 +1706,87 @@ def export_mib2_run(
         if not path:
             raise Mib2Error(_t("remote_not_supported"))
 
-        limit_colors = int(config.get_property("lim-colors"))
+        limit_colors = _normalize_limit_colors(config.get_property("lim-colors"))
+        auto_size = bool(config.get_property("auto-size"))
+        max_size_kib = _normalize_max_size_kib(config.get_property("max-size-kib"))
+        verify_export = bool(config.get_property("verify-export"))
         extract_label = bool(config.get_property("extract-label"))
 
-        # Safety net: value 1 is not a valid posterize level.
-        # Normalize it to the smallest active value, 2.
-        if limit_colors == 1:
-            _log(
-                "WARNING",
-                "Color levels: invalid value 1 received; normalized to 2.",
-            )
-            limit_colors = 2
-            try:
-                config.set_property("lim-colors", 2)
-            except Exception:
-                pass
-
-        # Inform interactive users immediately after confirming the export
-        # options if label extraction cannot be performed for this image size.
         if run_mode == Gimp.RunMode.INTERACTIVE and extract_label:
-            try:
-                current_width = image.get_width()
-                current_height = image.get_height()
-            except Exception:
-                current_width = getattr(image, "width", 0)
-                current_height = getattr(image, "height", 0)
-
+            current_width, current_height = _get_image_size(image)
             if current_width != 800 or current_height != 480:
                 _show_label_extraction_notice(image)
 
         _log(
             "INFO",
             f"Export requested: target={path}, color_levels={limit_colors}, "
-            f"extract_label={extract_label}.",
+            f"auto_size={auto_size}, max_size_kib={max_size_kib}, "
+            f"verify_export={verify_export}, extract_label={extract_label}.",
         )
 
-        width, height, rgb_pixels, posterize_method = (
-            _export_image_to_rgb_via_temp_png(image, limit_colors)
+        plan = _build_export_plan(
+            image,
+            limit_colors,
+            extract_label,
+            auto_size,
+            max_size_kib,
         )
 
-        _log(
-            "INFO",
-            f"Export step: RGB preparation completed; "
-            f"posterize_method={posterize_method}.",
-        )
-
+        width = plan["width"]
+        height = plan["height"]
         if width % 2 != 0:
             raise Mib2Error(_t("width_even"))
 
+        main_png_bytes = plan["main_png_bytes"]
+        label_png_bytes = plan["label_png_bytes"]
+        label_path = None
+
         _log(
             "INFO",
-            f"Export step: encoding RGB pixels to MIB2 ({width}x{height}).",
-        )
-        mib_pixels, label_pixels = encode_rgb_to_mib2(
-            width, height, rgb_pixels, extract_label
+            f"Export step: plan ready; requested_levels={plan['requested_levels']}, "
+            f"used_levels={plan['used_levels']}, posterize_method={plan['posterize_method']}, "
+            f"estimated_main={plan['main_size']} bytes, estimated_label={plan['label_size']} bytes, "
+            f"estimated_total={plan['total_size']} bytes, size_limit_met={plan['size_limit_met']}."
         )
 
         _log("INFO", f"Export step: writing main MIB2 file: {path}")
-        write_png(path, width, height, 4, mib_pixels)
+        with open(path, "wb") as handle:
+            handle.write(main_png_bytes)
 
-        if label_pixels is not None:
+        if label_png_bytes is not None:
             root, extension = os.path.splitext(path)
             label_path = root + "_lbl" + extension
-            _log(
-                "INFO",
-                f"Export step: writing extracted label file: {label_path}",
-            )
-            write_png(
-                label_path,
-                LABEL_WIDTH,
-                LABEL_HEIGHT,
-                4,
-                label_pixels,
-            )
+            _log("INFO", f"Export step: writing extracted label file: {label_path}")
+            with open(label_path, "wb") as handle:
+                handle.write(label_png_bytes)
         elif extract_label:
             _log(
                 "INFO",
-                "Export step: label extraction requested but skipped because "
-                "the image is not exactly 800x480. User was informed during "
-                "interactive export when applicable.",
+                "Export step: label extraction requested but skipped because the image is not exactly 800x480.",
             )
         else:
             _log("INFO", "Export step: label extraction disabled.")
 
-        try:
-            main_size = os.path.getsize(path)
-            _log(
-                "INFO",
-                f"Export completed successfully: target={path}, "
-                f"size={main_size} bytes, "
-                f"posterize_method={posterize_method}.",
-            )
-        except OSError:
-            _log(
-                "INFO",
-                f"Export completed successfully: target={path}, "
-                f"posterize_method={posterize_method}.",
-            )
+        main_size = os.path.getsize(path)
+        label_size = os.path.getsize(label_path) if label_path is not None else 0
+        total_size = main_size + label_size
+
+        _log(
+            "INFO",
+            "Export result summary: "
+            f"main_size={main_size} bytes, label_size={label_size} bytes, total_size={total_size} bytes, "
+            f"used_levels={plan['used_levels']}, requested_levels={plan['requested_levels']}, "
+            f"auto_size={plan['auto_optimize']}, max_size_kib={max_size_kib}, "
+            f"size_limit_met={plan['size_limit_met']}, posterize_method={plan['posterize_method']}."
+        )
+
+        if verify_export:
+            try:
+                _verify_exported_output(path, width, height, label_path)
+            except Exception as exc:
+                if run_mode == Gimp.RunMode.INTERACTIVE:
+                    _show_verification_error_dialog(str(exc))
+                raise
 
         return procedure.new_return_values(
             Gimp.PDBStatusType.SUCCESS, None
@@ -1574,6 +1867,29 @@ class Mib2ImagePlugin(Gimp.PlugIn):
                 GObject.ParamFlags.READWRITE,
             )
             procedure.add_boolean_argument(
+                "auto-size",
+                _t("auto_size_label"),
+                _t("auto_size_help"),
+                False,
+                GObject.ParamFlags.READWRITE,
+            )
+            procedure.add_int_argument(
+                "max-size-kib",
+                _t("max_size_kib_label"),
+                _t("max_size_kib_help"),
+                1,
+                1048576,
+                1024,
+                GObject.ParamFlags.READWRITE,
+            )
+            procedure.add_boolean_argument(
+                "verify-export",
+                _t("verify_export_label"),
+                _t("verify_export_help"),
+                True,
+                GObject.ParamFlags.READWRITE,
+            )
+            procedure.add_boolean_argument(
                 "extract-label",
                 _t("extract_label_label"),
                 _t("extract_label_help"),
@@ -1585,5 +1901,5 @@ class Mib2ImagePlugin(Gimp.PlugIn):
         return None
 
 
-_log("INFO", f"Starting plug-in binary={PLUGIN_BINARY}, language={LANGUAGE}, gimp_version={Gimp.version() or "unknown"}, log_max_bytes={LOG_MAX_BYTES}")
+_log("INFO", f"Starting plug-in binary={PLUGIN_BINARY}, language={LANGUAGE}, gimp_version={Gimp.version() or 'unknown'}, log_max_bytes={LOG_MAX_BYTES}")
 Gimp.main(Mib2ImagePlugin.__gtype__, sys.argv)
