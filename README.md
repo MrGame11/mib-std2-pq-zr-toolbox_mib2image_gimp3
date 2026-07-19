@@ -1,13 +1,28 @@
-<img width="500" height="500" alt="260719_Logo-2" src="https://github.com/user-attachments/assets/79c40151-aa88-4594-b06f-e0d9a6efd21d" />
+<table>
+<tr>
+<td width="350" valign="middle">
 
-# mib2image Gimp 3.x
-⚠️ **This tool version is only compatible with MIB STD2 PQ/ZR Technisat/Preh units and is NOT COMPATIBLE with MIB2 STD Delphi and MIB2 HIGH Harman units!** ⚠️
-⚠️ **This tool is 100 % vibe coded with AI. I AM NOT RESPONSIBLE FOR ANY DAMAGE OF YOUR UNIT OR COMPUTER. YOU ARE DOING EVERYTHING AT YOUR OWN RISK! READ THE README, USE YOUR BRAIN AND BE CAREFUL!** ⚠️
+<img width="350" alt="260719_Logo-2" src="https://github.com/user-attachments/assets/79c40151-aa88-4594-b06f-e0d9a6efd21d">
 
-Updatet Version of the mib2image converter from [John Tomatos](https://github.com/jtomtos) (2021)
+</td>
+<td valign="top">
 
+<h1>mib2image for Gimp 3.x</h1>
 
-Better Read me soon!
+⚠️ <b>This tool version is only compatible with MIB STD2 PQ/ZR Technisat/Preh units and is NOT COMPATIBLE with MIB2 STD Delphi and MIB2 HIGH Harman units! This tool is 100 % vibe coded with AI. I AM NOT RESPONSIBLE FOR ANY DAMAGE OF YOUR UNIT OR COMPUTER. YOU ARE DOING EVERYTHING AT YOUR OWN RISK! READ THE README, USE YOUR BRAIN AND BE CAREFUL!</b> ⚠️
+
+<br>
+
+Updated version of the mib2image converter from
+<a href="https://github.com/jtomtos">John Tomatos</a> (2021)
+
+<br>
+
+<b>Better README soon!</b>
+
+</td>
+</tr>
+</table>
 
 
 
